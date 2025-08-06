@@ -11,6 +11,7 @@ import re
 from playwright.async_api import async_playwright
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
+import aiohttp
 
 class ScreenshotScraper:
     def __init__(self, output_dir="scraped_data", use_proxy=True):
@@ -20,30 +21,113 @@ class ScreenshotScraper:
         self.texts_dir = os.path.join(output_dir, "texts")
         self.enhanced_dir = os.path.join(output_dir, "enhanced")
         
-        # Configurações de proxy
+        # Multiple proxy configurations
         self.use_proxy = use_proxy
-        self.proxy_config = {
-            "server": "http://proxypartners.intranatixis.com:8080",
-            "username": "cardosoti",
-            "password": "Sucesso2025+Total"
-        } if use_proxy else None
+        self.proxy_configs = {
+            "partners": {
+                "server": "http://proxypartners.intranatixis.com:8080",
+                "username": "cardosoti",
+                "password": "Sucesso2025+Total",
+                "env_http": "http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080",
+                "env_https": "http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080"
+            },
+            "users": {
+                "server": "http://proxyusers.intranatixis.com:8080",
+                "username": "cardosoti",
+                "password": "Sucesso2025+Total",
+                "env_http": "http://cardosoti:Sucesso2025+Total@proxyusers.intranatixis.com:8080",
+                "env_https": "http://cardosoti:Sucesso2025+Total@proxyusers.intranatixis.com:8080"
+            }
+        }
         
-        # Pool de threads para processamento paralelo
+        self.current_proxy = None
+        
+        # Thread pool for parallel processing
         self.executor = ThreadPoolExecutor(max_workers=min(4, multiprocessing.cpu_count()))
         
-        # Criar diretórios
+        # Create directories
         os.makedirs(self.screenshots_dir, exist_ok=True)
         os.makedirs(self.texts_dir, exist_ok=True)
         os.makedirs(self.enhanced_dir, exist_ok=True)
         
-        # Configurar variáveis de ambiente para proxy
+        # Configure proxy automatically
         if use_proxy:
-            os.environ['HTTP_PROXY'] = f"http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080"
-            os.environ['HTTPS_PROXY'] = f"http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080"
-            print(f"🌐 Proxy configurado: proxypartners.intranatixis.com:8080")
+            asyncio.create_task(self.setup_best_proxy())
+    
+    async def test_proxy(self, proxy_name, proxy_config):
+        """Test if a proxy is working"""
+        try:
+            print(f"🔍 Testing proxy {proxy_name}...")
+            
+            # Configure environment variables temporarily
+            original_http = os.environ.get('HTTP_PROXY')
+            original_https = os.environ.get('HTTPS_PROXY')
+            
+            os.environ['HTTP_PROXY'] = proxy_config['env_http']
+            os.environ['HTTPS_PROXY'] = proxy_config['env_https']
+            
+            # Simple connectivity test
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get('http://httpbin.org/ip', timeout=10) as response:
+                        if response.status == 200:
+                            result = await response.json()
+                            print(f"✅ Proxy {proxy_name} working - IP: {result.get('origin', 'N/A')}")
+                            return True
+                except:
+                    pass
+            
+            print(f"❌ Proxy {proxy_name} not responding")
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error testing proxy {proxy_name}: {e}")
+            return False
+        finally:
+            # Restore environment variables
+            if original_http:
+                os.environ['HTTP_PROXY'] = original_http
+            elif 'HTTP_PROXY' in os.environ:
+                del os.environ['HTTP_PROXY']
+                
+            if original_https:
+                os.environ['HTTPS_PROXY'] = original_https
+            elif 'HTTPS_PROXY' in os.environ:
+                del os.environ['HTTPS_PROXY']
+    
+    async def setup_best_proxy(self):
+        """Automatically choose the best available proxy"""
+        print(f"🌐 Detecting best available proxy...")
+        
+        # Test proxies in order of preference
+        proxy_order = ["partners", "users"]  # Priority: partners first
+        
+        for proxy_name in proxy_order:
+            proxy_config = self.proxy_configs[proxy_name]
+            
+            if await self.test_proxy(proxy_name, proxy_config):
+                self.current_proxy = proxy_name
+                
+                # Configure environment variables
+                os.environ['HTTP_PROXY'] = proxy_config['env_http']
+                os.environ['HTTPS_PROXY'] = proxy_config['env_https']
+                
+                print(f"🎯 Proxy selected: {proxy_name} ({proxy_config['server']})")
+                return
+        
+        # If no proxy works, disable
+        print(f"⚠️  No proxy available, continuing without proxy")
+        self.use_proxy = False
+        self.current_proxy = None
+    
+    def get_current_proxy_config(self):
+        """Returns current proxy configuration"""
+        if not self.use_proxy or not self.current_proxy:
+            return None
+        return self.proxy_configs[self.current_proxy]
     
     async def extract_links(self, html_content, base_url):
-        """Extrai todos os links do HTML"""
+        """Extract all links from HTML"""
         links = set()
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -58,24 +142,26 @@ class ScreenshotScraper:
                         links.add(clean_url)
             
         except Exception as e:
-            print(f"❌ Erro ao extrair links: {e}")
+            print(f"❌ Error extracting links: {e}")
         
         return links
     
     async def take_screenshot_playwright(self, url, filename):
-        """Tira screenshot de alta qualidade usando Playwright com proxy"""
+        """Take high-quality screenshot using Playwright with automatic proxy"""
         try:
-            print(f"📸 Capturando screenshot de: {url}")
-            if self.use_proxy:
-                print(f"🌐 Usando proxy: proxypartners.intranatixis.com:8080")
+            print(f"📸 Capturing screenshot of: {url}")
+            
+            if self.use_proxy and self.current_proxy:
+                print(f"🌐 Using proxy: {self.current_proxy} ({self.proxy_configs[self.current_proxy]['server']})")
             
             async with async_playwright() as p:
-                # Configurar browser com proxy
+                # Configure browser with proxy
                 browser_args = ['--no-sandbox', '--disable-dev-shm-usage']
                 
-                if self.use_proxy:
+                proxy_config = self.get_current_proxy_config()
+                if proxy_config:
                     browser_args.extend([
-                        f'--proxy-server={self.proxy_config["server"]}',
+                        f'--proxy-server={proxy_config["server"]}',
                         '--disable-web-security',
                         '--ignore-certificate-errors',
                         '--ignore-ssl-errors'
@@ -86,39 +172,43 @@ class ScreenshotScraper:
                     args=browser_args
                 )
                 
-                # Configurar contexto com proxy
+                # Configure context with proxy
                 context_config = {
                     'viewport': {'width': 1920, 'height': 1080},
                     'device_scale_factor': 2,
                     'ignore_https_errors': True
                 }
                 
-                if self.use_proxy:
-                    context_config['proxy'] = self.proxy_config
+                if proxy_config:
+                    context_config['proxy'] = {
+                        "server": proxy_config["server"],
+                        "username": proxy_config["username"],
+                        "password": proxy_config["password"]
+                    }
                 
                 context = await browser.new_context(**context_config)
                 
                 page = await context.new_page()
                 
                 try:
-                    # Configurar headers para bypass de detecção
+                    # Configure headers for detection bypass
                     await page.set_extra_http_headers({
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9,pt;q=0.8',
                         'Accept-Encoding': 'gzip, deflate, br',
                         'Connection': 'keep-alive',
                         'Upgrade-Insecure-Requests': '1'
                     })
                     
-                    print(f"🔗 Navegando para: {url}")
+                    print(f"🔗 Navigating to: {url}")
                     await page.goto(url, wait_until='networkidle', timeout=60000)
-                    print(f"✅ Página carregada com sucesso")
+                    print(f"✅ Page loaded successfully")
                     
                     await asyncio.sleep(3)
                     
-                    # Scroll para carregar conteúdo
-                    print(f"📜 Fazendo scroll para carregar conteúdo...")
+                    # Scroll to load content
+                    print(f"📜 Scrolling to load content...")
                     await page.evaluate("""
                         async () => {
                             window.scrollTo(0, document.body.scrollHeight);
@@ -136,59 +226,90 @@ class ScreenshotScraper:
                     
                     if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
                         file_size = os.path.getsize(screenshot_path)
-                        print(f"✅ Screenshot salvo: {file_size} bytes")
+                        print(f"✅ Screenshot saved: {file_size} bytes")
                         return screenshot_path, html_content
                     else:
-                        print(f"❌ Falha ao criar screenshot")
+                        print(f"❌ Failed to create screenshot")
                         return None, html_content
                         
                 except Exception as page_error:
-                    print(f"❌ Erro ao processar página: {page_error}")
+                    print(f"❌ Error processing page: {page_error}")
+                    
+                    # If it fails, try switching proxy
+                    if self.use_proxy and self.current_proxy:
+                        print(f"🔄 Trying to switch proxy...")
+                        await self.try_alternative_proxy()
+                    
                     await browser.close()
                     return None, None
                     
         except Exception as e:
-            print(f"❌ Erro no Playwright: {e}")
+            print(f"❌ Playwright error: {e}")
             return None, None
     
-    def create_enhanced_image(self, image_path, filename):
-        """Cria APENAS a versão enhanced (mais nítida)"""
-        try:
-            print(f"🔧 Criando imagem enhanced...")
+    async def try_alternative_proxy(self):
+        """Try using alternative proxy if current one fails"""
+        current = self.current_proxy
+        
+        if current == "partners":
+            alternative = "users"
+        elif current == "users":
+            alternative = "partners"
+        else:
+            return
+        
+        print(f"🔄 Trying alternative proxy: {alternative}")
+        
+        if await self.test_proxy(alternative, self.proxy_configs[alternative]):
+            self.current_proxy = alternative
+            alt_config = self.proxy_configs[alternative]
             
-            # Carregar imagem original
+            # Update environment variables
+            os.environ['HTTP_PROXY'] = alt_config['env_http']
+            os.environ['HTTPS_PROXY'] = alt_config['env_https']
+            
+            print(f"✅ Switched to alternative proxy: {alternative}")
+        else:
+            print(f"❌ Alternative proxy {alternative} also not working")
+    
+    def create_enhanced_image(self, image_path, filename):
+        """Create ONLY the enhanced version (sharper)"""
+        try:
+            print(f"🔧 Creating enhanced image...")
+            
+            # Load original image
             original_img = Image.open(image_path)
             
-            # Aplicar melhorias de qualidade
-            enhanced = ImageEnhance.Contrast(original_img).enhance(1.3)  # Mais contraste
-            enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.4)     # Mais nitidez
-            enhanced = ImageEnhance.Brightness(enhanced).enhance(1.1)    # Pouco mais brilho
+            # Apply quality improvements
+            enhanced = ImageEnhance.Contrast(original_img).enhance(1.3)  # More contrast
+            enhanced = ImageEnhance.Sharpness(enhanced).enhance(1.4)     # More sharpness
+            enhanced = ImageEnhance.Brightness(enhanced).enhance(1.1)    # Slightly more brightness
             
-            # Salvar imagem enhanced
+            # Save enhanced image
             enhanced_path = os.path.join(self.enhanced_dir, f"{filename}_enhanced.png")
             enhanced.save(enhanced_path, 'PNG', optimize=True, dpi=(300, 300))
             
-            print(f"✅ Imagem enhanced criada: {enhanced_path}")
+            print(f"✅ Enhanced image created: {enhanced_path}")
             return enhanced_path
             
         except Exception as e:
-            print(f"❌ Erro ao criar imagem enhanced: {e}")
-            return image_path  # Retorna original se falhar
+            print(f"❌ Error creating enhanced image: {e}")
+            return image_path  # Return original if it fails
     
     def extract_text_from_enhanced(self, enhanced_image_path):
-        """Extrai texto APENAS da imagem enhanced"""
+        """Extract text ONLY from enhanced image"""
         try:
-            print(f"🔍 Extraindo texto da imagem enhanced...")
+            print(f"🔍 Extracting text from enhanced image...")
             
             if not os.path.exists(enhanced_image_path):
-                print(f"❌ Imagem enhanced não encontrada: {enhanced_image_path}")
+                print(f"❌ Enhanced image not found: {enhanced_image_path}")
                 return ""
             
-            # Configurações OCR otimizadas para imagem enhanced
+            # OCR configurations optimized for enhanced image
             configs = [
-                r'--oem 3 --psm 3 -l por+eng -c preserve_interword_spaces=1',  # Página completa
-                r'--oem 3 --psm 6 -l por+eng -c preserve_interword_spaces=1',  # Bloco de texto
-                r'--oem 3 --psm 1 -l por+eng',  # Auto orientação
+                r'--oem 3 --psm 3 -l por+eng -c preserve_interword_spaces=1',  # Full page
+                r'--oem 3 --psm 6 -l por+eng -c preserve_interword_spaces=1',  # Text block
+                r'--oem 3 --psm 1 -l por+eng',  # Auto orientation
             ]
             
             best_text = ""
@@ -196,9 +317,9 @@ class ScreenshotScraper:
             
             for i, config in enumerate(configs):
                 try:
-                    print(f"🔍 Testando config {i+1}/3...")
+                    print(f"🔍 Testing config {i+1}/3...")
                     
-                    # Calcular confiança
+                    # Calculate confidence
                     data = pytesseract.image_to_data(
                         Image.open(enhanced_image_path), 
                         config=config, 
@@ -208,84 +329,84 @@ class ScreenshotScraper:
                     confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
                     avg_confidence = sum(confidences) / len(confidences) if confidences else 0
                     
-                    # Extrair texto
+                    # Extract text
                     text = pytesseract.image_to_string(Image.open(enhanced_image_path), config=config)
                     
                     char_count = len(text.strip())
-                    print(f"   📊 Config {i+1}: {char_count} chars, confiança: {avg_confidence:.1f}%")
+                    print(f"   📊 Config {i+1}: {char_count} chars, confidence: {avg_confidence:.1f}%")
                     
-                    # Usar melhor resultado
+                    # Use best result
                     if avg_confidence > best_confidence and char_count > 20:
                         best_text = text
                         best_confidence = avg_confidence
-                        print(f"   ✅ Novo melhor resultado!")
+                        print(f"   ✅ New best result!")
                         
-                    # Se resultado é muito bom, parar
+                    # If result is very good, stop
                     if avg_confidence > 85 and char_count > 300:
-                        print(f"   🎯 Resultado excelente, parando...")
+                        print(f"   🎯 Excellent result, stopping...")
                         break
                         
                 except Exception as config_error:
-                    print(f"   ❌ Erro config {i+1}: {config_error}")
+                    print(f"   ❌ Config {i+1} error: {config_error}")
                     continue
             
             if best_text.strip():
-                # Limpar texto
+                # Clean text
                 final_text = re.sub(r'\s+', ' ', best_text.strip())
                 final_text = re.sub(r'[^\w\s\.,;:!?\-\(\)\"\'àáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ]', '', final_text)
                 
-                print(f"🏆 Texto extraído com sucesso!")
-                print(f"   📝 Caracteres: {len(final_text)}")
-                print(f"   🎯 Confiança: {best_confidence:.1f}%")
+                print(f"🏆 Text extracted successfully!")
+                print(f"   📝 Characters: {len(final_text)}")
+                print(f"   🎯 Confidence: {best_confidence:.1f}%")
                 print(f"   📖 Preview: {final_text[:150]}...")
                 
                 return final_text
             else:
-                print("❌ Nenhum texto extraído")
+                print("❌ No text extracted")
                 return ""
             
         except Exception as e:
-            print(f"❌ Erro na extração de texto: {e}")
+            print(f"❌ Text extraction error: {e}")
             return ""
     
     async def save_text(self, text, filename):
-        """Salva o texto extraído em arquivo"""
+        """Save extracted text to file"""
         try:
             text_path = os.path.join(self.texts_dir, f"{filename}.txt")
             async with aiofiles.open(text_path, 'w', encoding='utf-8') as f:
                 await f.write(text)
             return text_path
         except Exception as e:
-            print(f"❌ Erro ao salvar texto: {e}")
+            print(f"❌ Error saving text: {e}")
             return None
     
     def process_image_and_ocr(self, screenshot_path, filename):
-        """Processa imagem e OCR em thread separada"""
+        """Process image and OCR in separate thread"""
         try:
-            # 1. Criar imagem enhanced
+            # 1. Create enhanced image
             enhanced_path = self.create_enhanced_image(screenshot_path, filename)
             
-            # 2. Extrair texto da imagem enhanced
+            # 2. Extract text from enhanced image
             extracted_text = self.extract_text_from_enhanced(enhanced_path)
             
             return extracted_text
             
         except Exception as e:
-            print(f"❌ Erro no processamento: {e}")
+            print(f"❌ Processing error: {e}")
             return ""
     
     async def scrape_url(self, url, max_depth=2, current_depth=0):
-        """Faz scraping de uma URL e suas sub-páginas"""
+        """Scrape a URL and its sub-pages"""
         if current_depth >= max_depth or url in self.visited_urls:
             return
         
         print(f"\n{'='*80}")
-        print(f"🎯 Processando (depth {current_depth}): {url}")
+        print(f"🎯 Processing (depth {current_depth}): {url}")
         print(f"{'='*80}")
         
         self.visited_urls.add(url)
         
-        # Gerar nome de arquivo único
+        # Generate unique filename
         parsed_url = urlparse(url)
         filename = f"{parsed_url.netloc}_{parsed_url.path.replace('/', '_')}_{len(self.visited_urls)}"
         filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-'))[:100]
@@ -293,13 +414,13 @@ class ScreenshotScraper:
         try:
             start_time = time.time()
             
-            # 1. Tirar screenshot
+            # 1. Take screenshot
             screenshot_path, html_content = await self.take_screenshot_playwright(url, filename)
             
             if screenshot_path and os.path.exists(screenshot_path):
-                print("\n🔍 Processando imagem enhanced + OCR...")
+                print("\n🔍 Processing enhanced image + OCR...")
                 
-                # 2. Processar imagem e OCR em thread separada
+                # 2. Process image and OCR in separate thread
                 loop = asyncio.get_event_loop()
                 ocr_text = await loop.run_in_executor(
                     self.executor, 
@@ -309,84 +430,91 @@ class ScreenshotScraper:
                 )
                 
                 if ocr_text.strip():
-                    # 3. Salvar texto com metadados
+                    # 3. Save text with metadata
                     processing_time = time.time() - start_time
+                    proxy_info = f"{self.current_proxy}" if self.current_proxy else "Disabled"
+                    
                     full_text = f"URL: {url}\n"
-                    full_text += f"Data: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    full_text += f"Profundidade: {current_depth}\n"
-                    full_text += f"Método: Enhanced OCR\n"
-                    full_text += f"Proxy: {'Ativo' if self.use_proxy else 'Desabilitado'}\n"
-                    full_text += f"Tempo: {processing_time:.1f}s\n"
-                    full_text += f"Caracteres: {len(ocr_text)}\n"
-                    full_text += f"Palavras: {len(ocr_text.split())}\n"
+                    full_text += f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    full_text += f"Depth: {current_depth}\n"
+                    full_text += f"Method: Enhanced OCR\n"
+                    full_text += f"Proxy: {proxy_info}\n"
+                    full_text += f"Time: {processing_time:.1f}s\n"
+                    full_text += f"Characters: {len(ocr_text)}\n"
+                    full_text += f"Words: {len(ocr_text.split())}\n"
                     full_text += "=" * 50 + "\n\n"
                     full_text += ocr_text
                     
-                    # Salvar texto
+                    # Save text
                     text_path = await self.save_text(full_text, filename)
-                    print(f"💾 Texto salvo em {processing_time:.1f}s: {text_path}")
+                    print(f"💾 Text saved in {processing_time:.1f}s: {text_path}")
                 else:
-                    print("⚠️  Não foi possível extrair texto")
+                    print("⚠️  Could not extract text")
             else:
-                print("❌ Não foi possível capturar screenshot")
+                print("❌ Could not capture screenshot")
             
-            # Processar links do próximo nível
+            # Process next level links
             if current_depth < max_depth - 1 and html_content:
                 links = await self.extract_links(html_content, url)
                 valid_links = [link for link in links if link not in self.visited_urls]
-                print(f"🔗 Encontrados {len(valid_links)} novos links")
+                print(f"🔗 Found {len(valid_links)} new links")
                 
-                # Processar alguns links
+                # Process some links
                 for link in valid_links[:2]:
                     await self.scrape_url(link, max_depth, current_depth + 1)
                     await asyncio.sleep(2)
         
         except Exception as e:
-            print(f"❌ Erro ao processar {url}: {e}")
+            print(f"❌ Error processing {url}: {e}")
     
     async def run(self, start_url, max_depth=2):
-        """Executa o scraping"""
+        """Execute scraping"""
         try:
-            proxy_status = "🌐 COM PROXY" if self.use_proxy else "🚫 SEM PROXY"
-            print(f"🚀 Scraping com Enhanced OCR {proxy_status}")
-            print(f"🎯 URL inicial: {start_url}")
-            print(f"📊 Profundidade máxima: {max_depth}")
-            print(f"💾 Dados serão salvos em: {self.output_dir}")
+            proxy_status = "🌐 AUTO PROXY" if self.use_proxy else "🚫 NO PROXY"
+            print(f"🚀 Scraping with Enhanced OCR {proxy_status}")
+            print(f"🎯 Initial URL: {start_url}")
+            print(f"📊 Maximum depth: {max_depth}")
+            print(f"💾 Data will be saved to: {self.output_dir}")
+            
             if self.use_proxy:
-                print(f"🌐 Proxy: proxypartners.intranatixis.com:8080")
-            print("📸 Modo: Screenshot + Enhanced Image + OCR")
+                # Wait for proxy configuration
+                await self.setup_best_proxy()
+                if self.current_proxy:
+                    print(f"🌐 Active proxy: {self.current_proxy}")
+            
+            print("📸 Mode: Screenshot + Enhanced Image + OCR")
             
             await self.scrape_url(start_url, max_depth)
             
-            # Fechar executor
+            # Close executor
             self.executor.shutdown(wait=True)
             
-            print(f"\n✅ Scraping concluído!")
-            print(f"📄 Total de páginas processadas: {len(self.visited_urls)}")
-            print(f"📸 Screenshots originais: {self.screenshots_dir}")
-            print(f"🔧 Imagens enhanced: {self.enhanced_dir}")
-            print(f"📝 Textos extraídos: {self.texts_dir}")
+            print(f"\n✅ Scraping completed!")
+            print(f"📄 Total pages processed: {len(self.visited_urls)}")
+            print(f"📸 Original screenshots: {self.screenshots_dir}")
+            print(f"🔧 Enhanced images: {self.enhanced_dir}")
+            print(f"📝 Extracted texts: {self.texts_dir}")
             
         except Exception as e:
-            print(f"❌ Erro durante execução: {e}")
+            print(f"❌ Execution error: {e}")
             self.executor.shutdown(wait=False)
 
 async def main():
-    """Função principal"""
-    url = input("Digite a URL inicial: ").strip()
+    """Main function"""
+    url = input("Enter initial URL: ").strip()
     if not url:
         url = "https://example.com"
-        print(f"Usando URL padrão: {url}")
+        print(f"Using default URL: {url}")
     
-    depth = input("Digite a profundidade máxima (padrão 2): ").strip()
+    depth = input("Enter maximum depth (default 2): ").strip()
     try:
         max_depth = int(depth) if depth else 2
     except ValueError:
         max_depth = 2
     
-    # Perguntar sobre proxy
-    use_proxy_input = input("Usar proxy corporativo? (s/N): ").strip().lower()
-    use_proxy = use_proxy_input in ['s', 'sim', 'y', 'yes']
+    # Ask about proxy
+    use_proxy_input = input("Use corporate proxy? (Y/n): ").strip().lower()
+    use_proxy = use_proxy_input not in ['n', 'no']
     
     scraper = ScreenshotScraper(use_proxy=use_proxy)
     await scraper.run(url, max_depth=max_depth)
