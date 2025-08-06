@@ -313,7 +313,14 @@ class ScreenshotScraper:
                 'button:has-text("Yes")',
                 'button:has-text("Sim")',
                 'input[value="Yes"]',
-                '#idSIButton9'
+                'input[value="Sim"]',
+                '#idSIButton9',
+                'button[data-report-event="Signin_Submit"]',
+                'input[type="submit"][value="Yes"]',
+                'input[type="submit"][value="Sim"]',
+                '.win-button[data-bind*="click: onYes"]',
+                'button[class*="primary"]',
+                '.ext-button.primary'
             ]
             
             for selector in stay_signed_selectors:
