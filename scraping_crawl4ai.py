@@ -25,18 +25,18 @@ class ScreenshotScraper:
         self.use_proxy = use_proxy
         self.proxy_configs = {
             "partners": {
-                "server": "http://proxypartners.intranatixis.com:8080",
+                "server": "http://proxypartners.intratest.com:8080",
                 "username": "cardosoti",
                 "password": "Sucesso2025+Total",
-                "env_http": "http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080",
-                "env_https": "http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080"
+                "env_http": "http://cardosoti:Sucesso2025+Total@proxypartners.intratest.com:8080",
+                "env_https": "http://cardosoti:Sucesso2025+Total@proxypartners.intratest.com:8080"
             },
             "users": {
-                "server": "http://proxyusers.intranatixis.com:8080",
+                "server": "http://proxyusers.intratest.com:8080",
                 "username": "cardosoti",
                 "password": "Sucesso2025+Total",
-                "env_http": "http://cardosoti:Sucesso2025+Total@proxyusers.intranatixis.com:8080",
-                "env_https": "http://cardosoti:Sucesso2025+Total@proxyusers.intranatixis.com:8080"
+                "env_http": "http://cardosoti:Sucesso2025+Total@proxyusers.intratest.com:8080",
+                "env_https": "http://cardosoti:Sucesso2025+Total@proxyusers.intratest.com:8080"
             }
         }
         
@@ -182,7 +182,7 @@ class ScreenshotScraper:
             print(f"🔐 Authentication required - attempting automatic login...")
             
             # Credentials
-            email = "tiago.cardoso@natixis.com"
+            email = "tiago.cardoso@test.com"
             password = "Sucesso2025+Total"
             
             # Try different email input selectors
