@@ -13,12 +13,20 @@ from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 
 class ScreenshotScraper:
-    def __init__(self, output_dir="scraped_data"):
+    def __init__(self, output_dir="scraped_data", use_proxy=True):
         self.output_dir = output_dir
         self.visited_urls = set()
         self.screenshots_dir = os.path.join(output_dir, "screenshots")
         self.texts_dir = os.path.join(output_dir, "texts")
         self.enhanced_dir = os.path.join(output_dir, "enhanced")
+        
+        # Configurações de proxy
+        self.use_proxy = use_proxy
+        self.proxy_config = {
+            "server": "http://proxypartners.intranatixis.com:8080",
+            "username": "cardosoti",
+            "password": "Sucesso2025+Total"
+        } if use_proxy else None
         
         # Pool de threads para processamento paralelo
         self.executor = ThreadPoolExecutor(max_workers=min(4, multiprocessing.cpu_count()))
@@ -27,6 +35,12 @@ class ScreenshotScraper:
         os.makedirs(self.screenshots_dir, exist_ok=True)
         os.makedirs(self.texts_dir, exist_ok=True)
         os.makedirs(self.enhanced_dir, exist_ok=True)
+        
+        # Configurar variáveis de ambiente para proxy
+        if use_proxy:
+            os.environ['HTTP_PROXY'] = f"http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080"
+            os.environ['HTTPS_PROXY'] = f"http://cardosoti:Sucesso2025+Total@proxypartners.intranatixis.com:8080"
+            print(f"🌐 Proxy configurado: proxypartners.intranatixis.com:8080")
     
     async def extract_links(self, html_content, base_url):
         """Extrai todos os links do HTML"""
@@ -49,28 +63,62 @@ class ScreenshotScraper:
         return links
     
     async def take_screenshot_playwright(self, url, filename):
-        """Tira screenshot de alta qualidade usando Playwright"""
+        """Tira screenshot de alta qualidade usando Playwright com proxy"""
         try:
             print(f"📸 Capturando screenshot de: {url}")
+            if self.use_proxy:
+                print(f"🌐 Usando proxy: proxypartners.intranatixis.com:8080")
             
             async with async_playwright() as p:
+                # Configurar browser com proxy
+                browser_args = ['--no-sandbox', '--disable-dev-shm-usage']
+                
+                if self.use_proxy:
+                    browser_args.extend([
+                        f'--proxy-server={self.proxy_config["server"]}',
+                        '--disable-web-security',
+                        '--ignore-certificate-errors',
+                        '--ignore-ssl-errors'
+                    ])
+                
                 browser = await p.chromium.launch(
                     headless=True,
-                    args=['--no-sandbox', '--disable-dev-shm-usage']
+                    args=browser_args
                 )
                 
-                context = await browser.new_context(
-                    viewport={'width': 1920, 'height': 1080},
-                    device_scale_factor=2  # Alta resolução para melhor OCR
-                )
+                # Configurar contexto com proxy
+                context_config = {
+                    'viewport': {'width': 1920, 'height': 1080},
+                    'device_scale_factor': 2,
+                    'ignore_https_errors': True
+                }
+                
+                if self.use_proxy:
+                    context_config['proxy'] = self.proxy_config
+                
+                context = await browser.new_context(**context_config)
                 
                 page = await context.new_page()
                 
                 try:
-                    await page.goto(url, wait_until='networkidle', timeout=45000)
+                    # Configurar headers para bypass de detecção
+                    await page.set_extra_http_headers({
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'pt-PT,pt;q=0.9,en;q=0.8',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1'
+                    })
+                    
+                    print(f"🔗 Navegando para: {url}")
+                    await page.goto(url, wait_until='networkidle', timeout=60000)
+                    print(f"✅ Página carregada com sucesso")
+                    
                     await asyncio.sleep(3)
                     
                     # Scroll para carregar conteúdo
+                    print(f"📜 Fazendo scroll para carregar conteúdo...")
                     await page.evaluate("""
                         async () => {
                             window.scrollTo(0, document.body.scrollHeight);
@@ -267,6 +315,7 @@ class ScreenshotScraper:
                     full_text += f"Data: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
                     full_text += f"Profundidade: {current_depth}\n"
                     full_text += f"Método: Enhanced OCR\n"
+                    full_text += f"Proxy: {'Ativo' if self.use_proxy else 'Desabilitado'}\n"
                     full_text += f"Tempo: {processing_time:.1f}s\n"
                     full_text += f"Caracteres: {len(ocr_text)}\n"
                     full_text += f"Palavras: {len(ocr_text.split())}\n"
@@ -298,10 +347,13 @@ class ScreenshotScraper:
     async def run(self, start_url, max_depth=2):
         """Executa o scraping"""
         try:
-            print(f"🚀 Scraping com Enhanced OCR")
+            proxy_status = "🌐 COM PROXY" if self.use_proxy else "🚫 SEM PROXY"
+            print(f"🚀 Scraping com Enhanced OCR {proxy_status}")
             print(f"🎯 URL inicial: {start_url}")
             print(f"📊 Profundidade máxima: {max_depth}")
             print(f"💾 Dados serão salvos em: {self.output_dir}")
+            if self.use_proxy:
+                print(f"🌐 Proxy: proxypartners.intranatixis.com:8080")
             print("📸 Modo: Screenshot + Enhanced Image + OCR")
             
             await self.scrape_url(start_url, max_depth)
@@ -332,7 +384,11 @@ async def main():
     except ValueError:
         max_depth = 2
     
-    scraper = ScreenshotScraper()
+    # Perguntar sobre proxy
+    use_proxy_input = input("Usar proxy corporativo? (s/N): ").strip().lower()
+    use_proxy = use_proxy_input in ['s', 'sim', 'y', 'yes']
+    
+    scraper = ScreenshotScraper(use_proxy=use_proxy)
     await scraper.run(url, max_depth=max_depth)
 
 if __name__ == "__main__":
