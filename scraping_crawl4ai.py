@@ -146,8 +146,204 @@ class ScreenshotScraper:
         
         return links
     
+    async def handle_authentication(self, page, url):
+        """Handle Murex/Office365 authentication automatically"""
+        try:
+            print(f"🔐 Checking for authentication requirements...")
+            
+            # Wait a bit for page to load
+            await asyncio.sleep(3)
+            
+            # Check for various login indicators
+            login_indicators = [
+                'input[type="email"]',
+                'input[name="loginfmt"]',
+                'input[placeholder*="email"]',
+                'input[placeholder*="Email"]',
+                '.sign-in',
+                '#signInName',
+                '[data-testid="i0116"]'
+            ]
+            
+            login_found = False
+            for selector in login_indicators:
+                try:
+                    if await page.locator(selector).count() > 0:
+                        print(f"🔍 Login form detected: {selector}")
+                        login_found = True
+                        break
+                except:
+                    continue
+            
+            if not login_found:
+                print(f"✅ No authentication required")
+                return True
+            
+            print(f"🔐 Authentication required - attempting automatic login...")
+            
+            # Credentials
+            email = "tiago.cardoso@natixis.com"
+            password = "Sucesso2025+Total"
+            
+            # Try different email input selectors
+            email_selectors = [
+                'input[type="email"]',
+                'input[name="loginfmt"]',
+                'input[placeholder*="email"]',
+                'input[placeholder*="Email"]',
+                '#signInName',
+                '[data-testid="i0116"]',
+                'input[name="username"]',
+                'input[id="username"]'
+            ]
+            
+            email_filled = False
+            for selector in email_selectors:
+                try:
+                    email_input = page.locator(selector)
+                    if await email_input.count() > 0:
+                        print(f"📧 Filling email with selector: {selector}")
+                        await email_input.clear()
+                        await email_input.fill(email)
+                        email_filled = True
+                        break
+                except Exception as e:
+                    print(f"   ❌ Failed with {selector}: {e}")
+                    continue
+            
+            if not email_filled:
+                print(f"❌ Could not find email input field")
+                return False
+            
+            # Look for Next/Continue button after email
+            next_selectors = [
+                'input[type="submit"]',
+                'input[value="Next"]',
+                'button[type="submit"]',
+                '.next-button',
+                '#idSIButton9',
+                '[data-testid="idSIButton9"]',
+                'button:has-text("Next")',
+                'button:has-text("Próximo")',
+                'input[value="Próximo"]'
+            ]
+            
+            next_clicked = False
+            for selector in next_selectors:
+                try:
+                    next_button = page.locator(selector)
+                    if await next_button.count() > 0:
+                        print(f"👆 Clicking Next button: {selector}")
+                        await next_button.click()
+                        next_clicked = True
+                        break
+                except Exception as e:
+                    print(f"   ❌ Failed clicking {selector}: {e}")
+                    continue
+            
+            if next_clicked:
+                print(f"⏳ Waiting for password page...")
+                await asyncio.sleep(4)
+            
+            # Now look for password field
+            password_selectors = [
+                'input[type="password"]',
+                'input[name="passwd"]',
+                'input[name="password"]',
+                '#passwordInput',
+                '[data-testid="i0118"]',
+                'input[placeholder*="password"]',
+                'input[placeholder*="Password"]'
+            ]
+            
+            password_filled = False
+            for selector in password_selectors:
+                try:
+                    password_input = page.locator(selector)
+                    if await password_input.count() > 0:
+                        print(f"🔑 Filling password with selector: {selector}")
+                        await password_input.clear()
+                        await password_input.fill(password)
+                        password_filled = True
+                        break
+                except Exception as e:
+                    print(f"   ❌ Failed with {selector}: {e}")
+                    continue
+            
+            if not password_filled:
+                print(f"❌ Could not find password input field")
+                return False
+            
+            # Submit login form
+            submit_selectors = [
+                'input[type="submit"]',
+                'input[value="Sign in"]',
+                'button[type="submit"]',
+                '.submit-button',
+                '#idSIButton9',
+                '[data-testid="idSIButton9"]',
+                'button:has-text("Sign in")',
+                'button:has-text("Entrar")',
+                'input[value="Entrar"]'
+            ]
+            
+            submit_clicked = False
+            for selector in submit_selectors:
+                try:
+                    submit_button = page.locator(selector)
+                    if await submit_button.count() > 0:
+                        print(f"🚀 Submitting login: {selector}")
+                        await submit_button.click()
+                        submit_clicked = True
+                        break
+                except Exception as e:
+                    print(f"   ❌ Failed submitting with {selector}: {e}")
+                    continue
+            
+            if not submit_clicked:
+                print(f"❌ Could not find submit button")
+                return False
+            
+            # Wait for login to complete
+            print(f"⏳ Waiting for authentication to complete...")
+            await asyncio.sleep(8)
+            
+            # Check if we're still on login page or if there are any "Stay signed in" prompts
+            stay_signed_selectors = [
+                'button:has-text("Yes")',
+                'button:has-text("Sim")',
+                'input[value="Yes"]',
+                '#idSIButton9'
+            ]
+            
+            for selector in stay_signed_selectors:
+                try:
+                    stay_button = page.locator(selector)
+                    if await stay_button.count() > 0:
+                        print(f"👍 Clicking 'Stay signed in': {selector}")
+                        await stay_button.click()
+                        await asyncio.sleep(3)
+                        break
+                except:
+                    continue
+            
+            # Final check - verify we're authenticated
+            current_url = page.url
+            if "login" not in current_url.lower() and "signin" not in current_url.lower():
+                print(f"✅ Authentication successful!")
+                print(f"🔗 Current URL: {current_url}")
+                return True
+            else:
+                print(f"⚠️  Still on login page, authentication may have failed")
+                print(f"🔗 Current URL: {current_url}")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Authentication error: {e}")
+            return False
+
     async def take_screenshot_playwright(self, url, filename):
-        """Take high-quality screenshot using Playwright with automatic proxy"""
+        """Take high-quality screenshot using Playwright with automatic proxy and authentication"""
         try:
             print(f"📸 Capturing screenshot of: {url}")
             
@@ -204,6 +400,11 @@ class ScreenshotScraper:
                     print(f"🔗 Navigating to: {url}")
                     await page.goto(url, wait_until='networkidle', timeout=60000)
                     print(f"✅ Page loaded successfully")
+                    
+                    # Handle authentication if required
+                    auth_success = await self.handle_authentication(page, url)
+                    if not auth_success:
+                        print(f"⚠️  Authentication failed, but continuing...")
                     
                     await asyncio.sleep(3)
                     
