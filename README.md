@@ -1,95 +1,95 @@
 # 🚀 AI Web Scraper with OCR, Data Cleaning & RAG System
 
-Um sistema completo de web scraping com OCR, limpeza de dados e sistema RAG (Retrieval-Augmented Generation) para extrair, processar e consultar informações de sites corporativos.
+A complete web scraping system with OCR, data cleaning and RAG (Retrieval-Augmented Generation) for extracting, processing and querying information from corporate websites.
 
-## 📋 Funcionalidades
+## 📋 Features
 
-- **🕷️ Web Scraping Avançado**: Screenshots de alta qualidade com Playwright
-- **🔍 OCR Inteligente**: Extração de texto com Tesseract e melhoria de imagens
-- **🧹 Limpeza de Dados**: Processamento automático com NLTK e análise linguística
-- **🤖 Sistema RAG**: Busca semântica com FAISS e OpenAI
-- **🌐 Interface Web**: Dashboard interativo com Streamlit
-- **🔐 Autenticação**: Login automático para sites corporativos
-- **🌐 Suporte a Proxy**: Configuração automática de proxy corporativo
+- **🕷️ Advanced Web Scraping**: High-quality screenshots with Playwright
+- **🔍 Intelligent OCR**: Text extraction with Tesseract and image enhancement
+- **🧹 Data Cleaning**: Automatic processing with NLTK and linguistic analysis
+- **🤖 RAG System**: Semantic search with FAISS and OpenAI
+- **🌐 Web Interface**: Interactive dashboard with Streamlit
+- **🔐 Authentication**: Automatic login for corporate sites
+- **🌐 Proxy Support**: Automatic corporate proxy configuration
 
-## 🛠️ Tecnologias Utilizadas
+## 🛠️ Technologies Used
 
 - **Python 3.8+**
-- **Playwright** - Automação de navegador
-- **Tesseract OCR** - Extração de texto de imagens
-- **OpenAI API** - Embeddings e geração de respostas
-- **FAISS** - Busca vetorial de similaridade
-- **Streamlit** - Interface web interativa
-- **NLTK** - Processamento de linguagem natural
-- **Pandas** - Análise de dados
+- **Playwright** - Browser automation
+- **Tesseract OCR** - Text extraction from images
+- **OpenAI API** - Embeddings and response generation
+- **FAISS** - Vector similarity search
+- **Streamlit** - Interactive web interface
+- **NLTK** - Natural language processing
+- **Pandas** - Data analysis
 
-## 📦 Instalação
+## 📦 Installation
 
-### 1️⃣ Pré-requisitos
+### 1️⃣ Prerequisites
 
 ```bash
 # Ubuntu/Debian
 sudo apt update
 sudo apt install python3-pip python3-venv tesseract-ocr tesseract-ocr-por
 
-# Windows (usando Chocolatey)
+# Windows (using Chocolatey)
 choco install tesseract
 
-# macOS (usando Homebrew)
+# macOS (using Homebrew)
 brew install tesseract tesseract-lang
 ```
 
-### 2️⃣ Configuração do Ambiente
+### 2️⃣ Environment Setup
 
 ```bash
-# Clone o projeto
-git clone <seu-repositorio>
+# Clone the project
+git clone <your-repository>
 cd DevProjects
 
-# Criar ambiente virtual
+# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate   # Windows
 
-# Instalar dependências
+# Install dependencies
 pip install -r requirements.txt
 
-# Instalar navegadores do Playwright
+# Install Playwright browsers
 playwright install
 ```
 
-### 3️⃣ Configuração de Credenciais
+### 3️⃣ Credentials Configuration
 
 ```bash
-# Copiar arquivo de exemplo
+# Copy example file
 cp .env.example .env
 
-# Editar com suas credenciais
+# Edit with your credentials
 nano .env
 ```
 
-**Conteúdo do arquivo .env:**
+**.env file content:**
 
 ```bash
 # OpenAI Configuration
-OPENAI_API_KEY=sua_chave_openai_aqui
+OPENAI_API_KEY=your_openai_key_here
 
 # Login Credentials
-LOGIN_EMAIL=seu.email@empresa.com
-LOGIN_PASSWORD=sua_senha_aqui
+LOGIN_EMAIL=your.email@company.com
+LOGIN_PASSWORD=your_password_here
 
 # Proxy Configuration
 USE_PROXY=true
 PROXY_PARTNERS_SERVER=http://proxypartners.intratest.com:8080
-PROXY_PARTNERS_USERNAME=seu_usuario
-PROXY_PARTNERS_PASSWORD=sua_senha_proxy
+PROXY_PARTNERS_USERNAME=your_username
+PROXY_PARTNERS_PASSWORD=your_proxy_password
 
 PROXY_USERS_SERVER=http://proxyusers.intratest.com:8080
-PROXY_USERS_USERNAME=seu_usuario
-PROXY_USERS_PASSWORD=sua_senha_proxy
+PROXY_USERS_USERNAME=your_username
+PROXY_USERS_PASSWORD=your_proxy_password
 
 # Default Settings
-DEFAULT_URL=https://seu-site-corporativo.com
+DEFAULT_URL=https://your-corporate-site.com
 DEFAULT_MAX_DEPTH=2
 DEFAULT_CLEAN_DATA=true
 DEFAULT_BUILD_RAG=true
@@ -100,267 +100,267 @@ WEB_PORT=8501
 WEB_HOST=localhost
 ```
 
-## 🚀 Como Executar
+## 🚀 How to Run
 
-### ⚡ Execução Rápida (Recomendado)
-
-```bash
-python run_scraper_with_cleaning.py
-```
-
-Este comando executa todo o pipeline automaticamente:
-1. ✅ Verifica dependências
-2. ✅ Executa web scraping com OCR
-3. ✅ Limpa e processa os dados
-4. ✅ Constrói sistema RAG
-5. ✅ Lança interface web interativa
-
-### 📋 Ordem de Execução Detalhada
-
-#### 1️⃣ **PREPARAÇÃO (Primeira Vez)**
-
-```bash
-# Verificar instalação
-python run_scraper_with_cleaning.py
-# Escolha "y" para mostrar guia de execução
-
-# Verificar CUDA/GPU (opcional)
-# Escolha "y" quando perguntado sobre CUDA
-```
-
-#### 2️⃣ **PIPELINE COMPLETO**
+### ⚡ Quick Start (Recommended)
 
 ```bash
 python run_scraper_with_cleaning.py
 ```
 
-**Fluxo interativo:**
-- 📋 Mostrar guia de execução? (y/N)
+This command runs the entire pipeline automatically:
+1. ✅ Checks dependencies
+2. ✅ Executes web scraping with OCR
+3. ✅ Cleans and processes data
+4. ✅ Builds RAG system
+5. ✅ Launches interactive web interface
+
+### 📋 Detailed Execution Order
+
+#### 1️⃣ **PREPARATION (First Time)**
+
+```bash
+# Check installation
+python run_scraper_with_cleaning.py
+# Choose "y" to show execution guide
+
+# Check CUDA/GPU (optional)
+# Choose "y" when asked about CUDA
+```
+
+#### 2️⃣ **COMPLETE PIPELINE**
+
+```bash
+python run_scraper_with_cleaning.py
+```
+
+**Interactive flow:**
+- 📋 Show execution guide? (y/N)
 - 🔍 Check CUDA/GPU availability? (y/N)
-- 🌐 Enter initial URL: `https://seu-site.com`
+- 🌐 Enter initial URL: `https://your-site.com`
 - 📊 Enter maximum depth: `2`
 - 🌐 Use corporate proxy? (Y/n)
 - 🧹 Clean data after scraping? (Y/n)
 - 🤖 Build RAG system? (Y/n)
 - 🌐 Launch web interface? (Y/n)
 
-#### 3️⃣ **EXECUÇÃO MODULAR** (Opcional)
+#### 3️⃣ **MODULAR EXECUTION** (Optional)
 
 ```bash
-# Apenas Web Scraping
+# Web Scraping Only
 python scraping_crawl4ai.py
 
-# Apenas Limpeza de Dados
+# Data Cleaning Only
 python data_cleaner.py
 
-# Apenas Sistema RAG
+# RAG System Only
 python rag_system.py
 
-# Apenas Interface Web
+# Web Interface Only
 streamlit run rag_web_interface.py
 ```
 
-## 📂 Estrutura de Arquivos
+## 📂 File Structure
 
 ```
 DevProjects/
-├── 📄 README.md                     # Documentação
-├── 📄 requirements.txt              # Dependências Python
-├── 📄 .env                         # Configurações (criar)
-├── 📄 .env.example                 # Exemplo de configurações
+├── 📄 README.md                     # Documentation
+├── 📄 requirements.txt              # Python dependencies
+├── 📄 .env                         # Configuration (create)
+├── 📄 .env.example                 # Configuration example
 │
-├── 🐍 run_scraper_with_cleaning.py # Script principal
-├── 🐍 scraping_crawl4ai.py         # Módulo de scraping
-├── 🐍 data_cleaner.py              # Módulo de limpeza
-├── 🐍 rag_system.py                # Sistema RAG
-├── 🐍 rag_web_interface.py         # Interface web
+├── 🐍 run_scraper_with_cleaning.py # Main script
+├── 🐍 scraping_crawl4ai.py         # Scraping module
+├── 🐍 data_cleaner.py              # Cleaning module
+├── 🐍 rag_system.py                # RAG system
+├── 🐍 rag_web_interface.py         # Web interface
 │
-└── 📁 scraped_data/                # Dados gerados
-    ├── 📁 screenshots/             # Screenshots originais
-    ├── 📁 enhanced/                # Imagens melhoradas
-    ├── 📁 texts/                   # Textos extraídos
-    ├── 📁 cleaned/                 # Dados limpos
-    ├── 📁 analytics/               # Relatórios
-    └── 📁 rag_index/               # Índice vetorial
+└── 📁 scraped_data/                # Generated data
+    ├── 📁 screenshots/             # Original screenshots
+    ├── 📁 enhanced/                # Enhanced images
+    ├── 📁 texts/                   # Extracted texts
+    ├── 📁 cleaned/                 # Cleaned data
+    ├── 📁 analytics/               # Reports
+    └── 📁 rag_index/               # Vector index
 ```
 
-## 🔧 Verificação do Sistema
+## 🔧 System Verification
 
-### Testar Dependências
+### Test Dependencies
 
 ```bash
 python -c "
 import playwright, tesseract, faiss, openai, streamlit
-print('✅ Todas as dependências instaladas!')
+print('✅ All dependencies installed!')
 "
 ```
 
-### Testar CUDA (GPU)
+### Test CUDA (GPU)
 
 ```bash
 python -c "
 import torch
-print(f'CUDA disponível: {torch.cuda.is_available()}')
+print(f'CUDA available: {torch.cuda.is_available()}')
 print(f'GPUs: {torch.cuda.device_count()}')
 "
 ```
 
-### Testar OCR
+### Test OCR
 
 ```bash
 python -c "
 import pytesseract
-print('✅ Tesseract funcionando!')
-print(f'Versão: {pytesseract.get_tesseract_version()}')
+print('✅ Tesseract working!')
+print(f'Version: {pytesseract.get_tesseract_version()}')
 "
 ```
 
-## 📊 Resultados Esperados
+## 📊 Expected Results
 
-Após a execução completa, você terá:
+After complete execution, you will have:
 
 ### 📁 **scraped_data/texts/**
-- Textos extraídos com metadados
-- Informações de proxy, tempo, confiança OCR
+- Extracted texts with metadata
+- Proxy information, time, OCR confidence
 
 ### 📁 **scraped_data/cleaned/**
-- Dados limpos em JSON e TXT
-- Remoção de ruído e artefatos OCR
-- Análise linguística e palavras-chave
+- Clean data in JSON and TXT
+- OCR artifacts and noise removal
+- Linguistic analysis and keywords
 
 ### 📁 **scraped_data/analytics/**
-- Relatórios de limpeza (CSV/JSON)
-- Estatísticas de eficiência
-- Distribuição de idiomas
+- Cleaning reports (CSV/JSON)
+- Efficiency statistics
+- Language distribution
 
 ### 📁 **scraped_data/rag_index/**
-- Índice vetorial FAISS
-- Embeddings OpenAI
-- Sistema de busca semântica
+- FAISS vector index
+- OpenAI embeddings
+- Semantic search system
 
-### 🌐 **Interface Web** (http://localhost:8501)
-- Chat interativo com dados
-- Busca por similaridade
-- Visualização de fontes
+### 🌐 **Web Interface** (http://localhost:8501)
+- Interactive chat with data
+- Similarity search
+- Source visualization
 
-## 🔍 Exemplos de Uso
+## 🔍 Usage Examples
 
-### Consulta via Interface Web
+### Query via Web Interface
 
-1. Acesse: http://localhost:8501
-2. Digite: "Quais são os principais produtos da empresa?"
-3. Obtenha resposta baseada nos dados coletados
+1. Access: http://localhost:8501
+2. Type: "What are the company's main products?"
+3. Get answer based on collected data
 
-### Consulta via Código
+### Query via Code
 
 ```python
 from rag_system import RAGSystem
 
 rag = RAGSystem("scraped_data")
-result = await rag.query("informações sobre vendas")
+result = await rag.query("sales information")
 
-print(f"Resposta: {result['answer']}")
-print(f"Confiança: {result['confidence']}")
-print(f"Fontes: {result['sources']}")
+print(f"Answer: {result['answer']}")
+print(f"Confidence: {result['confidence']}")
+print(f"Sources: {result['sources']}")
 ```
 
-## 🐛 Solução de Problemas
+## 🐛 Troubleshooting
 
-### Erro de Dependências
+### Dependencies Error
 
 ```bash
 pip install -r requirements.txt
 playwright install
 ```
 
-### Erro de Tesseract
+### Tesseract Error
 
 ```bash
 # Ubuntu/Debian
 sudo apt install tesseract-ocr tesseract-ocr-por
 
-# Verificar instalação
+# Check installation
 tesseract --version
 ```
 
-### Erro de Proxy
+### Proxy Error
 
 ```bash
-# Testar conectividade
-curl -x http://usuario:senha@proxy:8080 http://httpbin.org/ip
+# Test connectivity
+curl -x http://user:password@proxy:8080 http://httpbin.org/ip
 
-# Verificar credenciais no .env
+# Check credentials in .env
 ```
 
-### Erro OpenAI API
+### OpenAI API Error
 
 ```bash
-# Verificar chave no .env
+# Check key in .env
 echo $OPENAI_API_KEY
 
-# Testar API
+# Test API
 python -c "
 import openai
 client = openai.OpenAI()
-print('✅ OpenAI API funcionando!')
+print('✅ OpenAI API working!')
 "
 ```
 
-## 📝 Logs e Debugging
+## 📝 Logs and Debugging
 
-### Logs Detalhados
+### Detailed Logs
 
 ```bash
 python run_scraper_with_cleaning.py 2>&1 | tee execution.log
 ```
 
-### Verificar Arquivos Gerados
+### Check Generated Files
 
 ```bash
-# Contar arquivos processados
+# Count processed files
 find scraped_data -name "*.txt" | wc -l
 find scraped_data -name "*_cleaned.json" | wc -l
 
-# Ver último arquivo processado
+# View last processed file
 ls -la scraped_data/texts/ | tail -5
 ```
 
-## 🔒 Segurança
+## 🔒 Security
 
-- ✅ Credenciais em arquivo .env (não versionado)
-- ✅ Suporte a proxy corporativo
-- ✅ Headers realistas para evitar detecção
-- ✅ Controle de rate limiting
-- ✅ Logs sem credenciais sensíveis
+- ✅ Credentials in .env file (not versioned)
+- ✅ Corporate proxy support
+- ✅ Realistic headers to avoid detection
+- ✅ Rate limiting control
+- ✅ Logs without sensitive credentials
 
-## 🤝 Contribuição
+## 🤝 Contributing
 
-1. Fork o projeto
-2. Crie uma branch (`git checkout -b feature/nova-funcionalidade`)
-3. Commit suas mudanças (`git commit -am 'Adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/nova-funcionalidade`)
-5. Abra um Pull Request
+1. Fork the project
+2. Create a branch (`git checkout -b feature/new-feature`)
+3. Commit your changes (`git commit -am 'Add new feature'`)
+4. Push to the branch (`git push origin feature/new-feature`)
+5. Open a Pull Request
 
-## 📄 Licença
+## 📄 License
 
-Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para detalhes.
+This project is under the MIT license. See the `LICENSE` file for details.
 
-## 🆘 Suporte
+## 🆘 Support
 
-- 📧 Email: seu.email@empresa.com
-- 📱 Teams: @seu_usuario
-- 🐛 Issues: [GitHub Issues](https://github.com/seu-usuario/projeto/issues)
+- 📧 Email: your.email@company.com
+- 📱 Teams: @your_username
+- 🐛 Issues: [GitHub Issues](https://github.com/your-user/project/issues)
 
 ---
 
-**⚡ Início Rápido:**
+**⚡ Quick Start:**
 
 ```bash
 pip install -r requirements.txt
 playwright install
 cp .env.example .env
-# Editar .env com suas credenciais
+# Edit .env with your credentials
 python run_scraper_with_cleaning.py
 ```
 
-🎉 **Pronto! Seu sistema está funcionando!**
+🎉 **Ready! Your system is working!**
