@@ -12,6 +12,10 @@ from playwright.async_api import async_playwright
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import aiohttp
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class ScreenshotScraper:
     def __init__(self, output_dir="scraped_data", use_proxy=True):
@@ -21,22 +25,22 @@ class ScreenshotScraper:
         self.texts_dir = os.path.join(output_dir, "texts")
         self.enhanced_dir = os.path.join(output_dir, "enhanced")
         
-        # Multiple proxy configurations
+        # Multiple proxy configurations from environment
         self.use_proxy = use_proxy
         self.proxy_configs = {
             "partners": {
-                "server": "http://proxypartners.intratest.com:8080",
-                "username": "cardosoti",
-                "password": "Sucesso2025+Total",
-                "env_http": "http://cardosoti:Sucesso2025+Total@proxypartners.intratest.com:8080",
-                "env_https": "http://cardosoti:Sucesso2025+Total@proxypartners.intratest.com:8080"
+                "server": os.getenv('PROXY_PARTNERS_SERVER', 'http://proxypartners.intratest.com:8080'),
+                "username": os.getenv('PROXY_PARTNERS_USERNAME', ''),
+                "password": os.getenv('PROXY_PARTNERS_PASSWORD', ''),
+                "env_http": f"http://{os.getenv('PROXY_PARTNERS_USERNAME', '')}:{os.getenv('PROXY_PARTNERS_PASSWORD', '')}@{os.getenv('PROXY_PARTNERS_SERVER', 'proxypartners.intratest.com:8080').replace('http://', '')}",
+                "env_https": f"http://{os.getenv('PROXY_PARTNERS_USERNAME', '')}:{os.getenv('PROXY_PARTNERS_PASSWORD', '')}@{os.getenv('PROXY_PARTNERS_SERVER', 'proxypartners.intratest.com:8080').replace('http://', '')}"
             },
             "users": {
-                "server": "http://proxyusers.intratest.com:8080",
-                "username": "cardosoti",
-                "password": "Sucesso2025+Total",
-                "env_http": "http://cardosoti:Sucesso2025+Total@proxyusers.intratest.com:8080",
-                "env_https": "http://cardosoti:Sucesso2025+Total@proxyusers.intratest.com:8080"
+                "server": os.getenv('PROXY_USERS_SERVER', 'http://proxyusers.intratest.com:8080'),
+                "username": os.getenv('PROXY_USERS_USERNAME', ''),
+                "password": os.getenv('PROXY_USERS_PASSWORD', ''),
+                "env_http": f"http://{os.getenv('PROXY_USERS_USERNAME', '')}:{os.getenv('PROXY_USERS_PASSWORD', '')}@{os.getenv('PROXY_USERS_SERVER', 'proxyusers.intratest.com:8080').replace('http://', '')}",
+                "env_https": f"http://{os.getenv('PROXY_USERS_USERNAME', '')}:{os.getenv('PROXY_USERS_PASSWORD', '')}@{os.getenv('PROXY_USERS_SERVER', 'proxyusers.intratest.com:8080').replace('http://', '')}"
             }
         }
         
@@ -181,9 +185,13 @@ class ScreenshotScraper:
             
             print(f"🔐 Authentication required - attempting automatic login...")
             
-            # Credentials
-            email = "tiago.cardoso@test.com"
-            password = "Sucesso2025+Total"
+            # Credentials from environment variables
+            email = os.getenv('LOGIN_EMAIL', '')
+            password = os.getenv('LOGIN_PASSWORD', '')
+            
+            if not email or not password:
+                print(f"❌ Login credentials not found in environment variables")
+                return False
             
             # Try different email input selectors
             email_selectors = [
@@ -350,7 +358,7 @@ class ScreenshotScraper:
             return False
 
     async def take_screenshot_playwright(self, url, filename):
-        """Take high-quality screenshot using Playwright with automatic proxy and authentication"""
+        """Take high-quality screenshot using Playwright with persistent session"""
         try:
             print(f"📸 Capturing screenshot of: {url}")
             
@@ -358,60 +366,94 @@ class ScreenshotScraper:
                 print(f"🌐 Using proxy: {self.current_proxy} ({self.proxy_configs[self.current_proxy]['server']})")
             
             async with async_playwright() as p:
-                # Configure browser with proxy
-                browser_args = ['--no-sandbox', '--disable-dev-shm-usage']
+                # Configure browser with persistent context
+                browser_args = [
+                    '--no-sandbox', 
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security'
+                ]
                 
                 proxy_config = self.get_current_proxy_config()
                 if proxy_config:
                     browser_args.extend([
                         f'--proxy-server={proxy_config["server"]}',
-                        '--disable-web-security',
                         '--ignore-certificate-errors',
                         '--ignore-ssl-errors'
                     ])
                 
-                browser = await p.chromium.launch(
+                # Use persistent context to maintain cookies
+                user_data_dir = os.path.join(self.output_dir, "browser_data")
+                
+                browser = await p.chromium.launch_persistent_context(
+                    user_data_dir,
                     headless=True,
-                    args=browser_args
-                )
-                
-                # Configure context with proxy
-                context_config = {
-                    'viewport': {'width': 1920, 'height': 1080},
-                    'device_scale_factor': 2,
-                    'ignore_https_errors': True
-                }
-                
-                if proxy_config:
-                    context_config['proxy'] = {
+                    args=browser_args,
+                    viewport={'width': 1920, 'height': 1080},
+                    device_scale_factor=2,
+                    ignore_https_errors=True,
+                    proxy={
                         "server": proxy_config["server"],
                         "username": proxy_config["username"],
                         "password": proxy_config["password"]
-                    }
+                    } if proxy_config else None
+                )
                 
-                context = await browser.new_context(**context_config)
-                
-                page = await context.new_page()
+                page = browser.pages[0] if browser.pages else await browser.new_page()
                 
                 try:
-                    # Configure headers for detection bypass
+                    # Configure headers to look more like real browser
                     await page.set_extra_http_headers({
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.9,pt;q=0.8',
+                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8,pt;q=0.7',
                         'Accept-Encoding': 'gzip, deflate, br',
                         'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1'
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                        'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                        'sec-ch-ua-mobile': '?0',
+                        'sec-ch-ua-platform': '"Linux"'
                     })
+                    
+                    # Remove automation detection
+                    await page.add_init_script("""
+                        Object.defineProperty(navigator, 'webdriver', {
+                            get: () => undefined,
+                        });
+                        
+                        window.chrome = {
+                            runtime: {},
+                        };
+                        
+                        Object.defineProperty(navigator, 'plugins', {
+                            get: () => [1, 2, 3, 4, 5],
+                        });
+                        
+                        Object.defineProperty(navigator, 'languages', {
+                            get: () => ['en-US', 'en', 'pt-BR', 'pt'],
+                        });
+                    """)
                     
                     print(f"🔗 Navigating to: {url}")
                     await page.goto(url, wait_until='networkidle', timeout=60000)
                     print(f"✅ Page loaded successfully")
                     
-                    # Handle authentication if required
-                    auth_success = await self.handle_authentication(page, url)
-                    if not auth_success:
-                        print(f"⚠️  Authentication failed, but continuing...")
+                    # Check if already authenticated by looking for login elements
+                    login_check = await page.locator('input[type="email"], input[name="loginfmt"], #signInName').count()
+                    
+                    if login_check > 0:
+                        print(f"🔐 Authentication required - checking if we can reuse session...")
+                        
+                        # Handle authentication if required
+                        auth_success = await self.handle_authentication(page, url)
+                        if not auth_success:
+                            print(f"⚠️  Authentication failed, but continuing...")
+                    else:
+                        print(f"✅ Already authenticated (session reused)")
                     
                     await asyncio.sleep(3)
                     
@@ -442,12 +484,6 @@ class ScreenshotScraper:
                         
                 except Exception as page_error:
                     print(f"❌ Error processing page: {page_error}")
-                    
-                    # If it fails, try switching proxy
-                    if self.use_proxy and self.current_proxy:
-                        print(f"🔄 Trying to switch proxy...")
-                        await self.try_alternative_proxy()
-                    
                     await browser.close()
                     return None, None
                     
@@ -651,7 +687,7 @@ class ScreenshotScraper:
                     full_text += f"Characters: {len(ocr_text)}\n"
                     full_text += f"Words: {len(ocr_text.split())}\n"
                     full_text += "=" * 50 + "\n\n"
-                    full_text += ocr_text
+                    full_text += ocr_text;
                     
                     # Save text
                     text_path = await self.save_text(full_text, filename)
@@ -709,20 +745,25 @@ class ScreenshotScraper:
 
 async def main():
     """Main function"""
-    url = input("Enter initial URL: ").strip()
+    # Load default URL from environment
+    default_url = os.getenv('DEFAULT_URL', 'https://example.com')
+    url = input(f"Enter initial URL (default: {default_url}): ").strip()
     if not url:
-        url = "https://example.com"
+        url = default_url
         print(f"Using default URL: {url}")
     
-    depth = input("Enter maximum depth (default 2): ").strip()
+    # Load default depth from environment
+    default_depth = os.getenv('DEFAULT_MAX_DEPTH', '2')
+    depth = input(f"Enter maximum depth (default: {default_depth}): ").strip()
     try:
-        max_depth = int(depth) if depth else 2
+        max_depth = int(depth) if depth else int(default_depth)
     except ValueError:
-        max_depth = 2
+        max_depth = int(default_depth)
     
-    # Ask about proxy
-    use_proxy_input = input("Use corporate proxy? (Y/n): ").strip().lower()
-    use_proxy = use_proxy_input not in ['n', 'no']
+    # Ask about proxy with environment default
+    use_proxy_default = os.getenv('USE_PROXY', 'true').lower() in ['true', '1', 'yes', 'on']
+    use_proxy_input = input(f"Use corporate proxy? ({'Y' if use_proxy_default else 'n'}/{'n' if use_proxy_default else 'Y'}): ").strip().lower()
+    use_proxy = use_proxy_input not in ['n', 'no'] if use_proxy_input else use_proxy_default
     
     scraper = ScreenshotScraper(use_proxy=use_proxy)
     await scraper.run(url, max_depth=max_depth)
