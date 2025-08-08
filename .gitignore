@@ -1,4 +1,5 @@
 scraped_data/
+scraped_data*
 *.log
 __pycache__/
 .venv/

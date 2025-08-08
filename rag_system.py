@@ -55,6 +55,7 @@ class RAGSystem:
             model_name = "all-MiniLM-L6-v2"
             print(f"🤖 Loading embedding model: {model_name}")
             self.embedding_model = SentenceTransformer(model_name)
+            print(f"✅ Embedding model loaded successfully")
             
             # Initialize OpenAI client with new API
             if OPENAI_AVAILABLE:
@@ -237,22 +238,12 @@ class RAGSystem:
             print(f"❌ Error building RAG index: {e}")
             return False
 
-    async def search_similar_documents(self, query: str, top_k: int = None) -> List[Dict]:
-        """Search for similar documents using vector similarity"""
+    async def search_similar_documents(self, query: str, top_k: int = 5) -> List[Dict]:
+        """Search for similar documents using FAISS"""
         try:
-            if not self.faiss_index or not self.document_chunks:
-                print("❌ RAG index not loaded")
+            if not self.faiss_index or not self.document_chunks or not self.embedding_model:
+                print("❌ RAG system not properly initialized")
                 return []
-            
-            if not self.embedding_model:
-                print("❌ Embedding model not initialized")
-                print("🔧 Trying to initialize model...")
-                model_name = "all-MiniLM-L6-v2"
-                self.embedding_model = SentenceTransformer(model_name)
-                print(f"✅ Embedding model initialized: {model_name}")
-            
-            if top_k is None:
-                top_k = self.top_k
             
             print(f"🔍 Generating embeddings for query: '{query}'")
             
@@ -314,9 +305,9 @@ Answer:"""
             
             # Use new OpenAI API format
             response = self.openai_client.chat.completions.create(
-                model="gpt-4.1",
+                model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that answers questions based on provided context from scraped documents. Also answer any questions from the user."},
+                    {"role": "system", "content": "You are a helpful assistant that answers questions based on provided context from scraped documents. Also answer any questions from the user. Your name is ✨MurexAI 🤖✨"},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=500,

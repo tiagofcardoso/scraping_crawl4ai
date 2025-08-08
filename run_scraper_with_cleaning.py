@@ -179,7 +179,7 @@ def show_execution_guide():
     print("   • playwright install")
     print()
     print("2️⃣  EXECUTAR PIPELINE COMPLETO:")
-    print("   • python run_yper_with_cleaning.py")
+    print("   • python run_scraper_with_cleaning.py")
     print("   • Segue: Scraper → Cleaner → RAG → Web Interface")
     print()
     print("3️⃣  OU EXECUTAR MÓDULOS INDIVIDUAIS:")
@@ -278,7 +278,25 @@ async def main():
     print("PHASE 1: WEB SCRAPING")
     print("="*60)
     
-    scraper = ScreenshotScraper(use_proxy=use_proxy)
+    # Ask about output format in the main pipeline
+    print("📋 Choose capture format:")
+    print("1. Screenshot only (OCR only)")
+    print("2. PDF only (OCR only)")
+    print("3. 🚀 Both (Smart OCR comparison) [RECOMMENDED]")
+    
+    format_choice = input("Choose format (1/2/3, default: 3): ").strip()
+    
+    if format_choice == "1":
+        output_format = "screenshot"
+    elif format_choice == "2":
+        output_format = "pdf"
+    else:  # Default to "both" (option 3)
+        output_format = "both"
+    
+    print(f"✅ Selected format: {output_format}")
+    print("ℹ️  Note: Only OCR extraction will be used (no HTML parsing)")
+    
+    scraper = ScreenshotScraper(use_proxy=use_proxy, output_format=output_format)
     await scraper.run(url, max_depth=max_depth)
     
     # PHASE 2: Data Cleaning
@@ -287,13 +305,26 @@ async def main():
         print("PHASE 2: DATA CLEANING")
         print("="*60)
         
-        cleaner = DataCleaner(scraper.output_dir)
-        analytics = await cleaner.clean_all_files()
+        # Check if there are files to clean
+        import glob
+        text_files = glob.glob(os.path.join(scraper.output_dir, "texts", "*.txt"))
         
-        if analytics:
-            await cleaner.export_to_csv()
-            print(f"📈 Cleaning efficiency: {analytics['summary']['overall_reduction_percent']:.1f}% reduction")
-    
+        if text_files:
+            print(f"🔍 Found {len(text_files)} text files to clean")
+            cleaner = DataCleaner(scraper.output_dir)
+            analytics = await cleaner.clean_all_files()
+            
+            if analytics:
+                await cleaner.export_to_csv()
+                print(f"📈 Cleaning efficiency: {analytics['summary']['overall_reduction_percent']:.1f}% reduction")
+        else:
+            print("⚠️  No text files found to clean!")
+            print("💡 This might be because:")
+            print("   • Screenshot/PDF capture failed")
+            print("   • OCR couldn't extract text")
+            print("   • Network issues prevented page loading")
+            print("   • Try reducing max_depth or using different URL")
+
     # PHASE 3: RAG System Building
     if build_rag:
         print("\n" + "="*60)
@@ -319,21 +350,14 @@ async def main():
                 print("   • Document chunks ready for AI queries")
                 print("   • Knowledge base ready for Q&A")
                 
-                # Test query with better error handling
+                # Test query
                 test_query = input("\nEnter a test question (or press Enter to skip): ").strip()
                 if test_query:
                     print("\n🔍 Testing RAG system...")
-                    try:
-                        result = await rag.query(test_query)
-                        if result.get('error'):
-                            print(f"❌ RAG Query Error: {result['error']}")
-                        else:
-                            print(f"\n💡 Answer: {result['answer'][:200]}...")
-                            print(f"📊 Confidence: {result['confidence']:.2f}")
-                            print(f"📚 Sources: {result['documents_found']}")
-                    except Exception as e:
-                        print(f"❌ Error testing RAG: {e}")
-                        print("💡 The system was built but there might be an issue with querying")
+                    result = await rag.query(test_query)
+                    print(f"\n💡 Answer: {result['answer'][:200]}...")
+                    print(f"📊 Confidence: {result['confidence']:.2f}")
+                    print(f"📚 Sources: {result['documents_found']}")
             else:
                 print("❌ Failed to build RAG system")
                 print("💡 Common fixes:")
@@ -347,8 +371,7 @@ async def main():
             print("   • Remove old index: rm -rf scraped_data/rag/")
             print("   • Check file permissions")
             print("   • Ensure sufficient disk space")
-            print("   • Verify all dependencies are installed")
-
+    
     # PHASE 4: Launch Web Interface
     if launch_web and build_rag:
         print("\n" + "="*60)
