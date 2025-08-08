@@ -106,16 +106,19 @@ def check_dependencies():
     
     try:
         import faiss
+        print(f"✅ FAISS available: {faiss.__version__ if hasattr(faiss, '__version__') else 'Unknown'}")
     except ImportError:
         missing_deps.append("faiss-cpu")
     
     try:
         import sentence_transformers
+        print(f"✅ Sentence Transformers available")
     except ImportError:
         missing_deps.append("sentence-transformers")
     
     try:
         import streamlit
+        print(f"✅ Streamlit available")
     except ImportError:
         missing_deps.append("streamlit")
     
@@ -123,9 +126,19 @@ def check_dependencies():
     try:
         import torch
         print(f"✅ PyTorch available: {torch.__version__}")
+        
+        # Check if PyTorch has GPU support
+        if torch.cuda.is_available():
+            print(f"🎯 GPU acceleration available with your RTX 3050!")
+            print(f"   Note: faiss-gpu may not be available via pip for all systems")
+            gpu_available = True
+        else:
+            gpu_available = False
+            
     except ImportError:
         print(f"⚠️  PyTorch not available - some features may be limited")
         missing_deps.append("torch")
+        gpu_available = False
     
     if missing_deps:
         print("❌ Missing dependencies detected:")
@@ -135,8 +148,18 @@ def check_dependencies():
         print(f"   pip install {' '.join(missing_deps)}")
         print("\n💡 Or install all requirements:")
         print("   pip install -r requirements.txt")
-        print("\n⚠️  For GPU acceleration:")
-        print("   pip install faiss-gpu torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118")
+        
+        if gpu_available:
+            print("\n🚀 For GPU acceleration (RTX 3050 detected):")
+            print("   # Option 1: Try conda for faiss-gpu")
+            print("   conda install -c conda-forge faiss-gpu")
+            print("   # Option 2: Use faiss-cpu (still fast)")
+            print("   pip install faiss-cpu")
+            print("   # Note: faiss-cpu will work fine for most workloads!")
+        else:
+            print("\n💻 Installing CPU versions:")
+            print("   pip install faiss-cpu")
+        
         return False
     
     return True
@@ -156,7 +179,7 @@ def show_execution_guide():
     print("   • playwright install")
     print()
     print("2️⃣  EXECUTAR PIPELINE COMPLETO:")
-    print("   • python run_scraper_with_cleaning.py")
+    print("   • python run_yper_with_cleaning.py")
     print("   • Segue: Scraper → Cleaner → RAG → Web Interface")
     print()
     print("3️⃣  OU EXECUTAR MÓDULOS INDIVIDUAIS:")
@@ -176,23 +199,23 @@ async def main():
     print("=" * 60)
     
     # Show execution guide option
-    guide_check = input("Mostrar guia de execução? (y/N): ").strip().lower()
+    guide_check = input("Show execution guide? (y/N): ").strip().lower()
     if guide_check in ['y', 'yes', 's', 'sim']:
         show_execution_guide()
-        if input("\nContinuar com execução? (Y/n): ").strip().lower() in ['n', 'no', 'não']:
+        if input("\nContinue with execution? (Y/n): ").strip().lower() in ['n', 'no', 'não']:
             return
     
     # Check .env file exists
     if not os.path.exists('.env'):
-        print("⚠️  Arquivo .env não encontrado!")
-        print("🔧 Crie um arquivo .env com suas credenciais:")
-        print("   • OPENAI_API_KEY=sua_chave_aqui")
-        print("   • LOGIN_EMAIL=seu_email@empresa.com")
-        print("   • LOGIN_PASSWORD=sua_senha")
-        print("   • PROXY_PARTNERS_USERNAME=seu_usuario")
-        print("   • PROXY_PARTNERS_PASSWORD=sua_senha_proxy")
+        print("⚠️  .env file not found!")
+        print("🔧 Create a .env file with your credentials:")
+        print("   • OPENAI_API_KEY=your_key_here")
+        print("   • LOGIN_EMAIL=your_email@company.com")
+        print("   • LOGIN_PASSWORD=your_password")
+        print("   • PROXY_PARTNERS_USERNAME=your_username")
+        print("   • PROXY_PARTNERS_PASSWORD=your_proxy_password")
         print()
-        if input("Continuar mesmo assim? (y/N): ").strip().lower() not in ['y', 'yes']:
+        if input("Continue anyway? (y/N): ").strip().lower() not in ['y', 'yes']:
             return
     
     # Add option to check CUDA
@@ -203,6 +226,12 @@ async def main():
     # Check dependencies first
     if not check_dependencies():
         print("\n❌ Please install missing dependencies before continuing.")
+        print("\n💡 Quick install commands:")
+        print("   pip install sentence-transformers streamlit faiss-cpu")
+        print("   # This will work great with your RTX 3050!")
+        print("\n🔧 Alternative with conda (for GPU FAISS):")
+        print("   conda install -c conda-forge faiss-gpu sentence-transformers")
+        print("   pip install streamlit")
         sys.exit(1)
     
     # Import modules after dependency check
@@ -271,23 +300,55 @@ async def main():
         print("PHASE 3: RAG SYSTEM BUILDING")
         print("="*60)
         
-        rag = RAGSystem(scraper.output_dir)
-        rag_success = await rag.build_rag_index()
+        print("🔍 What's happening in this phase:")
+        print("   1. Loading AI embedding model")
+        print("   2. Processing cleaned documents")
+        print("   3. Creating vector representations")
+        print("   4. Building searchable index")
+        print()
         
-        if rag_success:
-            print("✅ RAG system built successfully!")
+        try:
+            rag = RAGSystem(scraper.output_dir)
+            rag_success = await rag.build_rag_index()
             
-            # Test query
-            test_query = input("\nEnter a test question (or press Enter to skip): ").strip()
-            if test_query:
-                print("\n🔍 Testing RAG system...")
-                result = await rag.query(test_query)
-                print(f"\n💡 Answer: {result['answer'][:200]}...")
-                print(f"📊 Confidence: {result['confidence']:.2f}")
-                print(f"📚 Sources: {result['documents_found']}")
-        else:
-            print("❌ Failed to build RAG system")
-    
+            if rag_success:
+                print("✅ RAG system built successfully!")
+                print("\n📊 What was created:")
+                print("   • Vector embeddings for semantic search")
+                print("   • FAISS index for fast similarity matching")
+                print("   • Document chunks ready for AI queries")
+                print("   • Knowledge base ready for Q&A")
+                
+                # Test query with better error handling
+                test_query = input("\nEnter a test question (or press Enter to skip): ").strip()
+                if test_query:
+                    print("\n🔍 Testing RAG system...")
+                    try:
+                        result = await rag.query(test_query)
+                        if result.get('error'):
+                            print(f"❌ RAG Query Error: {result['error']}")
+                        else:
+                            print(f"\n💡 Answer: {result['answer'][:200]}...")
+                            print(f"📊 Confidence: {result['confidence']:.2f}")
+                            print(f"📚 Sources: {result['documents_found']}")
+                    except Exception as e:
+                        print(f"❌ Error testing RAG: {e}")
+                        print("💡 The system was built but there might be an issue with querying")
+            else:
+                print("❌ Failed to build RAG system")
+                print("💡 Common fixes:")
+                print("   • Check if cleaned data exists in scraped_data/cleaned/")
+                print("   • Ensure OpenAI API key is set in .env")
+                print("   • Try removing scraped_data/rag/ and rebuilding")
+                
+        except Exception as e:
+            print(f"❌ RAG system error: {e}")
+            print("🔧 Troubleshooting:")
+            print("   • Remove old index: rm -rf scraped_data/rag/")
+            print("   • Check file permissions")
+            print("   • Ensure sufficient disk space")
+            print("   • Verify all dependencies are installed")
+
     # PHASE 4: Launch Web Interface
     if launch_web and build_rag:
         print("\n" + "="*60)

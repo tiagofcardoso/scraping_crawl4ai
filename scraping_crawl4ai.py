@@ -14,16 +14,31 @@ import multiprocessing
 import aiohttp
 from dotenv import load_dotenv
 
+# Add PDF support
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.utils import ImageReader
+    import fitz  # PyMuPDF for PDF to image conversion
+    PDF_AVAILABLE = True
+except ImportError:
+    print("⚠️  PDF libraries not available. Install with: pip install reportlab PyMuPDF")
+    PDF_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
 class ScreenshotScraper:
-    def __init__(self, output_dir="scraped_data", use_proxy=True):
+    def __init__(self, output_dir="scraped_data", use_proxy=True, output_format="screenshot"):
         self.output_dir = output_dir
         self.visited_urls = set()
         self.screenshots_dir = os.path.join(output_dir, "screenshots")
         self.texts_dir = os.path.join(output_dir, "texts")
         self.enhanced_dir = os.path.join(output_dir, "enhanced")
+        self.pdfs_dir = os.path.join(output_dir, "pdfs")
+        
+        # Output format: "screenshot", "pdf", or "both"
+        self.output_format = output_format
         
         # Multiple proxy configurations from environment
         self.use_proxy = use_proxy
@@ -53,6 +68,8 @@ class ScreenshotScraper:
         os.makedirs(self.screenshots_dir, exist_ok=True)
         os.makedirs(self.texts_dir, exist_ok=True)
         os.makedirs(self.enhanced_dir, exist_ok=True)
+        if PDF_AVAILABLE and output_format in ["pdf", "both"]:
+            os.makedirs(self.pdfs_dir, exist_ok=True)
         
         # Configure proxy automatically
         if use_proxy:
@@ -357,10 +374,139 @@ class ScreenshotScraper:
             print(f"❌ Authentication error: {e}")
             return False
 
-    async def take_screenshot_playwright(self, url, filename):
-        """Take high-quality screenshot using Playwright with persistent session"""
+    async def create_pdf_from_page(self, page, filename):
+        """Create PDF directly from webpage using Playwright"""
         try:
-            print(f"📸 Capturing screenshot of: {url}")
+            if not PDF_AVAILABLE:
+                print("❌ PDF libraries not available")
+                return None
+                
+            print(f"📄 Creating PDF from page...")
+            
+            pdf_path = os.path.join(self.pdfs_dir, f"{filename}.pdf")
+            
+            # Generate PDF with Playwright (better than screenshot conversion)
+            await page.pdf(
+                path=pdf_path,
+                format='A4',
+                print_background=True,
+                margin={'top': '1cm', 'right': '1cm', 'bottom': '1cm', 'left': '1cm'},
+                prefer_css_page_size=True,
+                display_header_footer=False
+            )
+            
+            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                file_size = os.path.getsize(pdf_path)
+                print(f"✅ PDF created: {file_size} bytes")
+                return pdf_path
+            else:
+                print(f"❌ Failed to create PDF")
+                return None
+                
+        except Exception as e:
+            print(f"❌ PDF creation error: {e}")
+            return None
+
+    def convert_pdf_to_images(self, pdf_path, filename):
+        """Convert PDF pages to high-quality images for OCR"""
+        try:
+            if not PDF_AVAILABLE:
+                return []
+                
+            print(f"🔄 Converting PDF to images for OCR...")
+            
+            doc = fitz.open(pdf_path)
+            image_paths = []
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                
+                # High DPI for better OCR
+                mat = fitz.Matrix(2.0, 2.0)  # 2x zoom = 144 DPI
+                pix = page.get_pixmap(matrix=mat)
+                
+                img_path = os.path.join(self.enhanced_dir, f"{filename}_page_{page_num + 1}.png")
+                pix.save(img_path)
+                image_paths.append(img_path)
+                
+                print(f"   📄 Page {page_num + 1} -> {img_path}")
+            
+            doc.close()
+            print(f"✅ PDF converted to {len(image_paths)} images")
+            return image_paths
+            
+        except Exception as e:
+            print(f"❌ PDF conversion error: {e}")
+            return []
+
+    def extract_text_from_pdf_images(self, image_paths):
+        """Extract text from PDF-generated images"""
+        try:
+            print(f"🔍 Extracting text from PDF images...")
+            
+            all_text = ""
+            total_confidence = 0
+            page_count = 0
+            
+            for i, img_path in enumerate(image_paths):
+                print(f"   📄 Processing page {i + 1}/{len(image_paths)}...")
+                
+                # OCR configuration optimized for PDF-generated images
+                config = r'--oem 3 --psm 1 -l por+eng -c preserve_interword_spaces=1'
+                
+                try:
+                    # Calculate confidence
+                    data = pytesseract.image_to_data(
+                        Image.open(img_path), 
+                        config=config, 
+                        output_type=pytesseract.Output.DICT
+                    )
+                    
+                    confidences = [int(conf) for conf in data['conf'] if int(conf) > 0]
+                    avg_confidence = sum(confidences) / len(confidences) if confidences else 0
+                    
+                    # Extract text
+                    page_text = pytesseract.image_to_string(Image.open(img_path), config=config)
+                    
+                    if page_text.strip():
+                        all_text += f"\n--- PAGE {i + 1} ---\n{page_text}\n"
+                        total_confidence += avg_confidence
+                        page_count += 1
+                        
+                        print(f"      ✅ {len(page_text)} chars, confidence: {avg_confidence:.1f}%")
+                    else:
+                        print(f"      ⚠️  No text extracted")
+                        
+                except Exception as page_error:
+                    print(f"      ❌ Error: {page_error}")
+                    continue
+            
+            final_confidence = total_confidence / page_count if page_count > 0 else 0
+            
+            if all_text.strip():
+                # Clean text
+                final_text = re.sub(r'\s+', ' ', all_text.strip())
+                final_text = re.sub(r'[^\w\s\.,;:!?\-\(\)\"\'àáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ\n]', '', final_text)
+                
+                print(f"🏆 PDF OCR completed!")
+                print(f"   📄 Pages processed: {page_count}")
+                print(f"   📝 Total characters: {len(final_text)}")
+                print(f"   🎯 Average confidence: {final_confidence:.1f}%")
+                
+                return final_text
+            else:
+                print("❌ No text extracted from PDF")
+                return ""
+                
+        except Exception as e:
+            print(f"❌ PDF OCR error: {e}")
+            return ""
+
+    async def take_screenshot_playwright(self, url, filename):
+        """Take screenshot and/or create PDF based on output_format"""
+        try:
+            print(f"📸 Capturing content from: {url}")
+            print(f"📋 Output format: {self.output_format}")
             
             if self.use_proxy and self.current_proxy:
                 print(f"🌐 Using proxy: {self.current_proxy} ({self.proxy_configs[self.current_proxy]['server']})")
@@ -468,28 +614,38 @@ class ScreenshotScraper:
                         }
                     """)
                     
-                    screenshot_path = os.path.join(self.screenshots_dir, f"{filename}.png")
-                    await page.screenshot(path=screenshot_path, full_page=True)
-                    
+                    screenshot_path = None
+                    pdf_path = None
                     html_content = await page.content()
+                    
+                    # Create screenshot if requested
+                    if self.output_format in ["screenshot", "both"]:
+                        screenshot_path = os.path.join(self.screenshots_dir, f"{filename}.png")
+                        await page.screenshot(path=screenshot_path, full_page=True)
+                        
+                        if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
+                            file_size = os.path.getsize(screenshot_path)
+                            print(f"✅ Screenshot saved: {file_size} bytes")
+                        else:
+                            print(f"❌ Failed to create screenshot")
+                            screenshot_path = None
+                    
+                    # Create PDF if requested
+                    if self.output_format in ["pdf", "both"] and PDF_AVAILABLE:
+                        pdf_path = await self.create_pdf_from_page(page, filename)
+                    
                     await browser.close()
                     
-                    if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 0:
-                        file_size = os.path.getsize(screenshot_path)
-                        print(f"✅ Screenshot saved: {file_size} bytes")
-                        return screenshot_path, html_content
-                    else:
-                        print(f"❌ Failed to create screenshot")
-                        return None, html_content
-                        
+                    return screenshot_path, pdf_path, html_content
+                    
                 except Exception as page_error:
                     print(f"❌ Error processing page: {page_error}")
                     await browser.close()
-                    return None, None
+                    return None, None, None
                     
         except Exception as e:
             print(f"❌ Playwright error: {e}")
-            return None, None
+            return None, None, None
     
     async def try_alternative_proxy(self):
         """Try using alternative proxy if current one fails"""
@@ -659,7 +815,7 @@ class ScreenshotScraper:
             start_time = time.time()
             
             # 1. Take screenshot
-            screenshot_path, html_content = await self.take_screenshot_playwright(url, filename)
+            screenshot_path, pdf_path, html_content = await self.take_screenshot_playwright(url, filename)
             
             if screenshot_path and os.path.exists(screenshot_path):
                 print("\n🔍 Processing enhanced image + OCR...")
@@ -765,7 +921,24 @@ async def main():
     use_proxy_input = input(f"Use corporate proxy? ({'Y' if use_proxy_default else 'n'}/{'n' if use_proxy_default else 'Y'}): ").strip().lower()
     use_proxy = use_proxy_input not in ['n', 'no'] if use_proxy_input else use_proxy_default
     
-    scraper = ScreenshotScraper(use_proxy=use_proxy)
+    # Ask about output format
+    print("\n📋 Choose output format:")
+    print("1. Screenshot only (traditional)")
+    print("2. PDF only (better for text-heavy pages)")
+    print("3. Both (compare and choose best)")
+    
+    format_choice = input("Choose format (1/2/3, default: 1): ").strip()
+    
+    if format_choice == "2":
+        output_format = "pdf"
+    elif format_choice == "3":
+        output_format = "both"
+    else:
+        output_format = "screenshot"
+    
+    print(f"✅ Selected format: {output_format}")
+    
+    scraper = ScreenshotScraper(use_proxy=use_proxy, output_format=output_format)
     await scraper.run(url, max_depth=max_depth)
 
 if __name__ == "__main__":

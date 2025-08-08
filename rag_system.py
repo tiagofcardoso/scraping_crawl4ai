@@ -1,404 +1,386 @@
 import os
 import json
 import asyncio
+from typing import List, Dict, Any
+import faiss
 import numpy as np
+from sentence_transformers import SentenceTransformer
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
 import aiofiles
 from datetime import datetime
-import pickle
-import faiss
-from sentence_transformers import SentenceTransformer
-import openai
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.docstore.document import Document
-import pandas as pd
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Import OpenAI with new API format
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    print("⚠️  OpenAI not available. Install with: pip install openai")
+    OPENAI_AVAILABLE = False
 
 class RAGSystem:
-    """RAG system for scraped and cleaned data"""
+    """RAG (Retrieval-Augmented Generation) system for document search and Q&A"""
     
-    def __init__(self, data_dir="scraped_data", model_name="all-MiniLM-L6-v2"):
+    def __init__(self, data_dir="scraped_data"):
         self.data_dir = data_dir
         self.cleaned_dir = os.path.join(data_dir, "cleaned")
         self.rag_dir = os.path.join(data_dir, "rag")
+        self.indexes_dir = os.path.join(self.rag_dir, "indexes")
         self.embeddings_dir = os.path.join(self.rag_dir, "embeddings")
-        self.index_dir = os.path.join(self.rag_dir, "indexes")
         
         # Create directories
         os.makedirs(self.rag_dir, exist_ok=True)
+        os.makedirs(self.indexes_dir, exist_ok=True)
         os.makedirs(self.embeddings_dir, exist_ok=True)
-        os.makedirs(self.index_dir, exist_ok=True)
         
-        # Initialize embedding model
-        print(f"🤖 Loading embedding model: {model_name}")
-        self.embedding_model = SentenceTransformer(model_name)
-        self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
-        
-        # Initialize text splitter
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            length_function=len,
-            separators=["\n\n", "\n", ". ", "! ", "? ", " ", ""]
-        )
-        
-        # Storage for documents and metadata
+        # Initialize models
+        self.embedding_model = None
+        self.openai_client = None
+        self.faiss_index = None
         self.documents = []
-        self.metadata = []
-        self.vector_store = None
+        self.document_chunks = []
         
-        # Initialize OpenAI (optional - for advanced generation)
-        self.openai_api_key = os.getenv('OPENAI_API_KEY')
-        if self.openai_api_key:
-            openai.api_key = self.openai_api_key
-            print("✅ OpenAI API configured")
-        else:
-            print("⚠️  OpenAI API key not found - will use basic responses")
-    
-    async def load_cleaned_data(self) -> List[Dict]:
-        """Load all cleaned JSON files"""
+        # Configuration
+        self.chunk_size = 500
+        self.chunk_overlap = 50
+        self.top_k = 5
+
+    async def initialize_models(self):
+        """Initialize embedding model and OpenAI client"""
         try:
+            # Initialize embedding model
+            model_name = "all-MiniLM-L6-v2"
+            print(f"🤖 Loading embedding model: {model_name}")
+            self.embedding_model = SentenceTransformer(model_name)
+            
+            # Initialize OpenAI client with new API
+            if OPENAI_AVAILABLE:
+                api_key = os.getenv('OPENAI_API_KEY')
+                if api_key:
+                    self.openai_client = OpenAI(api_key=api_key)
+                    print("✅ OpenAI client initialized")
+                else:
+                    print("⚠️  OPENAI_API_KEY not found in environment variables")
+            else:
+                print("⚠️  OpenAI not available")
+                
+        except Exception as e:
+            print(f"❌ Error initializing models: {e}")
+            raise
+
+    async def load_documents(self) -> List[Dict]:
+        """Load cleaned documents from JSON files"""
+        try:
+            print("📚 Loading cleaned documents...")
+            
             json_files = list(Path(self.cleaned_dir).glob("*_cleaned.json"))
+            documents = []
             
-            if not json_files:
-                print(f"❌ No cleaned JSON files found in {self.cleaned_dir}")
-                return []
-            
-            print(f"📚 Loading {len(json_files)} cleaned files...")
-            
-            all_data = []
             for json_file in json_files:
-                try:
-                    async with aiofiles.open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.loads(await f.read())
-                        all_data.append(data)
-                except Exception as e:
-                    print(f"❌ Error loading {json_file}: {e}")
+                async with aiofiles.open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.loads(await f.read())
+                    
+                    # Extract relevant information
+                    doc = {
+                        'id': str(len(documents)),
+                        'filename': data['processing']['file_source'],
+                        'url': data['metadata'].get('url', 'Unknown'),
+                        'content': data['content']['full_text'],
+                        'language': data['content']['language'],
+                        'keywords': [kw[0] for kw in data['content']['keywords'][:10]],
+                        'metadata': data['metadata']
+                    }
+                    documents.append(doc)
             
-            print(f"✅ Loaded {len(all_data)} documents")
-            return all_data
+            print(f"✅ Loaded {len(documents)} documents")
+            return documents
             
         except Exception as e:
-            print(f"❌ Error loading cleaned data: {e}")
+            print(f"❌ Error loading documents: {e}")
             return []
-    
-    async def create_document_chunks(self, cleaned_data: List[Dict]) -> List[Document]:
-        """Create document chunks for embedding"""
+
+    def create_chunks(self, documents: List[Dict]) -> List[Dict]:
+        """Split documents into smaller chunks"""
         try:
-            print(f"📄 Creating document chunks...")
+            print("📄 Creating document chunks...")
+            chunks = []
             
-            all_documents = []
-            
-            for data in cleaned_data:
-                # Get text content
-                full_text = data['content']['full_text']
-                sentences = data['content']['sentences']
-                
-                # Create chunks from full text
-                text_chunks = self.text_splitter.split_text(full_text)
-                
-                # Create documents with metadata
-                for i, chunk in enumerate(text_chunks):
-                    if len(chunk.strip()) < 50:  # Skip very short chunks
-                        continue
-                    
-                    metadata = {
-                        'source_file': data['processing']['file_source'],
-                        'url': data['metadata'].get('url', 'Unknown'),
-                        'language': data['content']['language'],
-                        'chunk_index': i,
-                        'total_chunks': len(text_chunks),
-                        'keywords': [kw[0] for kw in data['content']['keywords'][:5]],
-                        'cleaned_at': data['processing']['cleaned_at'],
-                        'chunk_type': 'full_text'
-                    }
-                    
-                    doc = Document(page_content=chunk, metadata=metadata)
-                    all_documents.append(doc)
-                
-                # Also add meaningful sentences as separate documents
-                for i, sentence in enumerate(sentences[:20]):  # Limit to top 20 sentences
-                    if len(sentence.strip()) < 30:
-                        continue
-                    
-                    metadata = {
-                        'source_file': data['processing']['file_source'],
-                        'url': data['metadata'].get('url', 'Unknown'),
-                        'language': data['content']['language'],
-                        'sentence_index': i,
-                        'keywords': [kw[0] for kw in data['content']['keywords'][:3]],
-                        'cleaned_at': data['processing']['cleaned_at'],
-                        'chunk_type': 'sentence'
-                    }
-                    
-                    doc = Document(page_content=sentence, metadata=metadata)
-                    all_documents.append(doc)
-            
-            print(f"✅ Created {len(all_documents)} document chunks")
-            return all_documents
-            
-        except Exception as e:
-            print(f"❌ Error creating document chunks: {e}")
-            return []
-    
-    async def build_vector_index(self, documents: List[Document]) -> bool:
-        """Build FAISS vector index"""
-        try:
-            print(f"🔍 Building vector index for {len(documents)} documents...")
-            
-            # Create vector store
-            self.vector_store = FAISS.from_documents(documents, self.embeddings)
-            
-            # Save vector store
-            vector_store_path = os.path.join(self.index_dir, "faiss_index")
-            self.vector_store.save_local(vector_store_path)
-            
-            # Save document metadata
-            metadata_path = os.path.join(self.index_dir, "document_metadata.json")
-            doc_metadata = []
             for doc in documents:
-                doc_metadata.append({
-                    'content': doc.page_content,
-                    'metadata': doc.metadata
-                })
+                content = doc['content']
+                words = content.split()
+                
+                # Create overlapping chunks
+                for i in range(0, len(words), self.chunk_size - self.chunk_overlap):
+                    chunk_words = words[i:i + self.chunk_size]
+                    chunk_text = ' '.join(chunk_words)
+                    
+                    if len(chunk_text.strip()) > 50:  # Only keep meaningful chunks
+                        chunk = {
+                            'id': f"{doc['id']}_{len(chunks)}",
+                            'text': chunk_text,
+                            'doc_id': doc['id'],
+                            'filename': doc['filename'],
+                            'url': doc['url'],
+                            'language': doc['language'],
+                            'chunk_index': len(chunks)
+                        }
+                        chunks.append(chunk)
             
-            async with aiofiles.open(metadata_path, 'w', encoding='utf-8') as f:
-                await f.write(json.dumps(doc_metadata, ensure_ascii=False, indent=2))
+            print(f"✅ Created {len(chunks)} document chunks")
+            return chunks
             
-            print(f"✅ Vector index built and saved to {vector_store_path}")
-            return True
+        except Exception as e:
+            print(f"❌ Error creating chunks: {e}")
+            return []
+
+    async def build_vector_index(self, chunks: List[Dict]):
+        """Build FAISS vector index from document chunks"""
+        try:
+            print(f"🔍 Building vector index for {len(chunks)} documents...")
+            
+            # Generate embeddings for all chunks
+            texts = [chunk['text'] for chunk in chunks]
+            embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
+            
+            # Create FAISS index
+            dimension = embeddings.shape[1]
+            self.faiss_index = faiss.IndexFlatIP(dimension)  # Inner product for similarity
+            
+            # Normalize embeddings for cosine similarity
+            faiss.normalize_L2(embeddings)
+            self.faiss_index.add(embeddings.astype('float32'))
+            
+            # Save index and chunks with proper file extension
+            index_path = os.path.join(self.indexes_dir, "faiss_index.idx")
+            faiss.write_index(self.faiss_index, index_path)
+            
+            chunks_path = os.path.join(self.embeddings_dir, "document_chunks.json")
+            async with aiofiles.open(chunks_path, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(chunks, ensure_ascii=False, indent=2))
+            
+            self.document_chunks = chunks
+            print(f"✅ Vector index built and saved to {index_path}")
             
         except Exception as e:
             print(f"❌ Error building vector index: {e}")
-            return False
-    
-    async def load_vector_index(self) -> bool:
-        """Load existing vector index"""
+            raise
+
+    async def load_existing_index(self) -> bool:
+        """Load existing FAISS index and document chunks"""
         try:
-            vector_store_path = os.path.join(self.index_dir, "faiss_index")
+            index_path = os.path.join(self.indexes_dir, "faiss_index.idx")
+            chunks_path = os.path.join(self.embeddings_dir, "document_chunks.json")
             
-            if not os.path.exists(vector_store_path):
-                print(f"❌ No vector index found at {vector_store_path}")
+            if os.path.exists(index_path) and os.path.exists(chunks_path):
+                # Initialize models first - this was missing!
+                await self.initialize_models()
+                
+                # Load FAISS index
+                self.faiss_index = faiss.read_index(index_path)
+                
+                # Load document chunks
+                async with aiofiles.open(chunks_path, 'r', encoding='utf-8') as f:
+                    self.document_chunks = json.loads(await f.read())
+                
+                print(f"✅ Loaded existing index with {len(self.document_chunks)} chunks")
+                print(f"✅ Embedding model: {type(self.embedding_model).__name__}")
+                print(f"✅ OpenAI client: {'Available' if self.openai_client else 'Not configured'}")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error loading existing index: {e}")
+            return False
+
+    async def build_rag_index(self) -> bool:
+        """Build complete RAG index"""
+        try:
+            print("🚀 Building RAG index...")
+            
+            # Initialize models
+            await self.initialize_models()
+            
+            # Clean up any existing faiss_index directory if it exists
+            old_index_dir = os.path.join(self.indexes_dir, "faiss_index")
+            if os.path.isdir(old_index_dir):
+                import shutil
+                print("🧹 Removing old index directory...")
+                shutil.rmtree(old_index_dir)
+            
+            # Try to load existing index
+            if await self.load_existing_index():
+                return True
+            
+            # Load documents
+            self.documents = await self.load_documents()
+            if not self.documents:
+                print("❌ No documents found")
                 return False
             
-            print(f"📚 Loading vector index from {vector_store_path}")
-            self.vector_store = FAISS.load_local(vector_store_path, self.embeddings)
+            # Create chunks
+            chunks = self.create_chunks(self.documents)
+            if not chunks:
+                print("❌ No chunks created")
+                return False
             
-            print(f"✅ Vector index loaded successfully")
+            # Build vector index
+            await self.build_vector_index(chunks)
+            
+            print("✅ RAG index built successfully!")
             return True
             
         except Exception as e:
-            print(f"❌ Error loading vector index: {e}")
+            print(f"❌ Error building RAG index: {e}")
             return False
-    
-    def search_similar_documents(self, query: str, k: int = 5) -> List[Tuple[Document, float]]:
-        """Search for similar documents"""
+
+    async def search_similar_documents(self, query: str, top_k: int = None) -> List[Dict]:
+        """Search for similar documents using vector similarity"""
         try:
-            if not self.vector_store:
-                print("❌ Vector store not initialized")
+            if not self.faiss_index or not self.document_chunks:
+                print("❌ RAG index not loaded")
                 return []
             
-            # Search with scores
-            results = self.vector_store.similarity_search_with_score(query, k=k)
+            if not self.embedding_model:
+                print("❌ Embedding model not initialized")
+                print("🔧 Trying to initialize model...")
+                model_name = "all-MiniLM-L6-v2"
+                self.embedding_model = SentenceTransformer(model_name)
+                print(f"✅ Embedding model initialized: {model_name}")
+            
+            if top_k is None:
+                top_k = self.top_k
+            
+            print(f"🔍 Generating embeddings for query: '{query}'")
+            
+            # Generate query embedding
+            query_embedding = self.embedding_model.encode([query])
+            faiss.normalize_L2(query_embedding)
+            
+            print(f"✅ Query embedding shape: {query_embedding.shape}")
+            
+            # Search similar documents
+            scores, indices = self.faiss_index.search(query_embedding.astype('float32'), top_k)
+            
+            print(f"🔍 Found {len(scores[0])} results with scores: {scores[0]}")
+            
+            # Retrieve matching chunks
+            results = []
+            for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
+                if idx < len(self.document_chunks) and idx >= 0:
+                    chunk = self.document_chunks[idx].copy()
+                    chunk['similarity_score'] = float(score)
+                    chunk['rank'] = i + 1
+                    results.append(chunk)
+                    print(f"   📄 Result {i+1}: {chunk['filename']} (score: {score:.3f})")
             
             return results
             
         except Exception as e:
             print(f"❌ Error searching documents: {e}")
+            import traceback
+            traceback.print_exc()
             return []
-    
-    async def generate_response(self, query: str, context_docs: List[Document]) -> str:
-        """Generate response using context documents"""
-        try:
-            # Combine context
-            context_text = "\n\n".join([doc.page_content for doc in context_docs])
-            
-            if self.openai_api_key:
-                # Use OpenAI for advanced generation
-                response = await self.generate_openai_response(query, context_text)
-            else:
-                # Use basic template response
-                response = self.generate_basic_response(query, context_text, context_docs)
-            
-            return response
-            
-        except Exception as e:
-            print(f"❌ Error generating response: {e}")
-            return f"Desculpe, ocorreu um erro ao gerar a resposta: {e}"
-    
-    async def generate_openai_response(self, query: str, context: str) -> str:
-        """Generate response using OpenAI"""
-        try:
-            prompt = f"""
-Baseado no contexto fornecido abaixo, responda à pergunta de forma precisa e informativa.
-Use apenas as informações do contexto fornecido.
 
-CONTEXTO:
+    async def generate_answer(self, query: str, context_chunks: List[Dict]) -> Dict:
+        """Generate answer using OpenAI with new API format"""
+        try:
+            if not self.openai_client:
+                return {
+                    'answer': "OpenAI client not available. Please check your API key.",
+                    'confidence': 0.0,
+                    'error': 'No OpenAI client'
+                }
+            
+            # Prepare context from similar chunks
+            context = "\n\n".join([
+                f"Document: {chunk['filename']}\nContent: {chunk['text'][:500]}..."
+                for chunk in context_chunks[:3]
+            ])
+            
+            # Create prompt
+            prompt = f"""Based on the following context from scraped documents, answer the question.
+If the information is not available in the context, say so clearly.
+
+Context:
 {context}
 
-PERGUNTA: {query}
+Question: {query}
 
-RESPOSTA:
-"""
+Answer:"""
             
-            response = await openai.ChatCompletion.acreate(
-                model="gpt-3.5-turbo",
+            # Use new OpenAI API format
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4.1",
                 messages=[
-                    {"role": "system", "content": "Você é um assistente especializado em analisar dados extraídos de websites. Responda sempre em português de forma clara e precisa."},
+                    {"role": "system", "content": "You are a helpful assistant that answers questions based on provided context from scraped documents. Also answer any questions from the user."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=500,
                 temperature=0.7
             )
             
-            return response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content.strip()
+            
+            # Calculate confidence based on similarity scores
+            avg_similarity = np.mean([chunk['similarity_score'] for chunk in context_chunks]) if context_chunks else 0
+            confidence = min(avg_similarity * 1.2, 1.0)  # Scale to 0-1
+            
+            return {
+                'answer': answer,
+                'confidence': confidence,
+                'sources': [chunk['filename'] for chunk in context_chunks],
+                'context_used': len(context_chunks)
+            }
             
         except Exception as e:
-            print(f"❌ Error with OpenAI: {e}")
-            return self.generate_basic_response(query, context, [])
-    
-    def generate_basic_response(self, query: str, context: str, docs: List[Document]) -> str:
-        """Generate basic template response"""
-        try:
-            # Extract sources
-            sources = set()
-            languages = set()
-            
-            for doc in docs:
-                if hasattr(doc, 'metadata'):
-                    url = doc.metadata.get('url', 'Unknown')
-                    if url != 'Unknown':
-                        sources.add(url)
-                    languages.add(doc.metadata.get('language', 'Unknown'))
-            
-            # Create basic response
-            response = f"""
-Com base nos dados extraídos dos websites, encontrei as seguintes informações relacionadas à sua pergunta "{query}":
+            print(f"❌ Error generating answer: {e}")
+            return {
+                'answer': f"Error generating answer: {str(e)}",
+                'confidence': 0.0,
+                'error': str(e)
+            }
 
-{context[:1000]}{"..." if len(context) > 1000 else ""}
-
-Fontes consultadas:
-"""
-            
-            for i, source in enumerate(list(sources)[:3], 1):
-                response += f"{i}. {source}\n"
-            
-            if len(sources) > 3:
-                response += f"... e mais {len(sources) - 3} fontes\n"
-            
-            response += f"\nIdiomas detectados: {', '.join(languages)}"
-            response += f"\nDocumentos analisados: {len(docs)}"
-            
-            return response
-            
-        except Exception as e:
-            print(f"❌ Error generating basic response: {e}")
-            return "Desculpe, não foi possível gerar uma resposta adequada."
-    
-    async def query(self, question: str, k: int = 5) -> Dict[str, Any]:
-        """Main query function"""
+    async def query(self, question: str) -> Dict:
+        """Main query function - search and generate answer"""
         try:
             print(f"🔍 Searching for: {question}")
             
-            # Search similar documents
-            results = self.search_similar_documents(question, k=k)
+            # Search for similar documents
+            similar_docs = await self.search_similar_documents(question, top_k=5)
             
-            if not results:
+            if not similar_docs:
                 return {
-                    'question': question,
-                    'answer': 'Não foram encontrados documentos relevantes para esta pergunta.',
-                    'sources': [],
-                    'confidence': 0.0
+                    'answer': "No relevant documents found for your question.",
+                    'confidence': 0.0,
+                    'documents_found': 0,
+                    'sources': []
                 }
             
-            # Extract documents and scores
-            docs = [result[0] for result in results]
-            scores = [result[1] for result in results]
+            print(f"📚 Found {len(similar_docs)} relevant document(s)")
             
-            # Generate response
-            answer = await self.generate_response(question, docs)
+            # Generate answer using OpenAI
+            result = await self.generate_answer(question, similar_docs)
             
-            # Prepare sources
-            sources = []
-            for doc, score in results:
-                source_info = {
-                    'url': doc.metadata.get('url', 'Unknown'),
-                    'file': doc.metadata.get('source_file', 'Unknown'),
-                    'language': doc.metadata.get('language', 'Unknown'),
-                    'relevance_score': float(score),
-                    'keywords': doc.metadata.get('keywords', []),
-                    'preview': doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content
-                }
-                sources.append(source_info)
+            # Add metadata
+            result['documents_found'] = len(similar_docs)
+            result['query'] = question
+            result['timestamp'] = datetime.now().isoformat()
             
-            # Calculate average confidence
-            avg_confidence = 1.0 - (sum(scores) / len(scores)) if scores else 0.0
-            
-            result = {
-                'question': question,
-                'answer': answer,
-                'sources': sources,
-                'confidence': avg_confidence,
-                'timestamp': datetime.now().isoformat(),
-                'documents_found': len(docs)
-            }
-            
-            print(f"✅ Generated response with {len(docs)} sources")
             return result
             
         except Exception as e:
             print(f"❌ Error processing query: {e}")
             return {
-                'question': question,
-                'answer': f'Erro ao processar a pergunta: {e}',
+                'answer': f"Error processing query: {str(e)}",
+                'confidence': 0.0,
+                'documents_found': 0,
                 'sources': [],
-                'confidence': 0.0
+                'error': str(e)
             }
-    
-    async def build_rag_index(self) -> bool:
-        """Build complete RAG index from cleaned data"""
-        try:
-            print("🚀 Building RAG index...")
-            
-            # Load cleaned data
-            cleaned_data = await self.load_cleaned_data()
-            if not cleaned_data:
-                return False
-            
-            # Create document chunks
-            documents = await self.create_document_chunks(cleaned_data)
-            if not documents:
-                return False
-            
-            # Build vector index
-            success = await self.build_vector_index(documents)
-            
-            if success:
-                print("✅ RAG index built successfully!")
-                
-                # Save index info
-                index_info = {
-                    'created_at': datetime.now().isoformat(),
-                    'total_documents': len(documents),
-                    'total_sources': len(cleaned_data),
-                    'embedding_model': self.embedding_model.get_sentence_embedding_dimension(),
-                    'chunk_size': 1000,
-                    'chunk_overlap': 200
-                }
-                
-                info_path = os.path.join(self.rag_dir, "index_info.json")
-                async with aiofiles.open(info_path, 'w', encoding='utf-8') as f:
-                    await f.write(json.dumps(index_info, ensure_ascii=False, indent=2))
-                
-                return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"❌ Error building RAG index: {e}")
-            return False
 
 async def main():
     """Main function for RAG system testing"""
@@ -412,8 +394,8 @@ async def main():
     
     rag = RAGSystem(data_dir)
     
-    # Check if index exists
-    index_exists = await rag.load_vector_index()
+    # Check if index exists and load models
+    index_exists = await rag.load_existing_index()
     
     if not index_exists:
         print("🔧 No existing index found. Building new index...")
@@ -421,6 +403,13 @@ async def main():
         if not success:
             print("❌ Failed to build RAG index")
             return
+    
+    # Verify all components are loaded
+    print(f"\n🔍 System Status:")
+    print(f"   FAISS Index: {'✅ Loaded' if rag.faiss_index else '❌ Missing'}")
+    print(f"   Document Chunks: {'✅ Loaded' if rag.document_chunks else '❌ Missing'} ({len(rag.document_chunks) if rag.document_chunks else 0} chunks)")
+    print(f"   Embedding Model: {'✅ Ready' if rag.embedding_model else '❌ Missing'}")
+    print(f"   OpenAI Client: {'✅ Ready' if rag.openai_client else '❌ Missing'}")
     
     # Interactive query loop
     print("\n🎯 RAG System ready! Ask questions about your scraped data.")
@@ -445,10 +434,13 @@ async def main():
             print(f"\n📊 Confidence: {result['confidence']:.2f}")
             print(f"📚 Sources found: {result['documents_found']}")
             
-            if result['sources']:
+            if result.get('sources') and isinstance(result['sources'], list) and len(result['sources']) > 0:
                 print(f"\n🔗 Top sources:")
                 for i, source in enumerate(result['sources'][:3], 1):
-                    print(f"{i}. {source['url']} (relevance: {source['relevance_score']:.3f})")
+                    if isinstance(source, str):
+                        print(f"{i}. {source}")
+                    elif isinstance(source, dict) and 'filename' in source:
+                        print(f"{i}. {source['filename']}")
             
             print("\n" + "-" * 50)
             
@@ -457,6 +449,8 @@ async def main():
             break
         except Exception as e:
             print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     asyncio.run(main())
